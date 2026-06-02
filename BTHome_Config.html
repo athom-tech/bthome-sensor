@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BTHome Config Tools</title>
+<style>
+  :root { --bg:#0f1419; --fg:#e6e6e6; --accent:#4ec9b0; --warn:#ce9178; --err:#f48771; --card:#1e2530; --border:#2d3748; --muted:#8ea0b5; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--fg); margin: 0; padding: 16px;
+         max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.4em; margin: 0; }
+  h2 { font-size: 1.05em; margin: 0 0 8px; color: var(--accent); }
+  .topbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin: 0 0 12px; }
+  .topbar h1 { flex: 1 1 260px; }
+  .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+  .picker { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 0.85em; white-space: nowrap; }
+  .picker span { color: var(--fg); opacity: 0.85; }
+  .picker select { font-family: inherit; }
+  .switch-feedback { color: var(--warn); font-size: 0.85em; min-height: 1.2em; margin: 0 0 10px; }
+  .device-view[hidden] { display: none; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px; margin-bottom: 14px; }
+  button { background: var(--accent); color: #000; border: 0; padding: 8px 14px;
+           border-radius: 6px; cursor: pointer; font-weight: 600; margin: 2px; }
+  button:disabled { background: #555; color: #999; cursor: not-allowed; }
+  button.secondary { background: #555; color: var(--fg); }
+  button.danger { background: var(--err); color: #000; }
+  input, select { background: #0a0f15; color: var(--fg); border: 1px solid var(--border);
+                  padding: 6px 8px; border-radius: 4px; font-family: monospace; }
+  input[type="text"], input[type="number"] { width: 100%; }
+  label { display: inline-block; min-width: 80px; font-size: 0.9em; }
+  .row { margin: 6px 0; }
+  .row.flex { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+  .grid > div { display: flex; align-items: center; gap: 6px; }
+  .grid label { min-width: 46px; }
+  .grid input { flex: 1; min-width: 0; }
+  .status { padding: 4px 10px; border-radius: 4px; font-size: 0.85em; }
+  .status-disconnected { background: #444; }
+  .status-connected { background: #2d6a4f; }
+  .status-error { background: #7a2424; }
+  pre.log { background: #050810; padding: 8px; border-radius: 4px; max-height: 240px;
+            overflow-y: auto; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; }
+  .hex { font-family: monospace; letter-spacing: 0.5px; }
+  .warn { color: var(--warn); font-size: 0.85em; margin: 8px 0; }
+  .err { color: var(--err); font-size: 0.85em; margin: 8px 0; }
+  .ok { color: var(--accent); font-size: 0.85em; }
+  .muted { color: var(--muted); font-size: 0.85em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1 data-i18n="app.title">BTHome Config Tools</h1>
+  <div class="toolbar">
+    <label class="picker">
+      <span data-i18n="view.label">Device</span>
+      <select id="device-select" aria-label="Device" data-i18n-aria-label="view.label">
+        <option value="presence" data-i18n="view.presence">Presence Sensor</option>
+        <option value="door" data-i18n="view.door">Door Sensor</option>
+      </select>
+    </label>
+    <label class="picker">
+      <span data-i18n="language.label">Language</span>
+      <select id="language-select" aria-label="Language" data-i18n-aria-label="language.label">
+        <option value="en">English</option>
+        <option value="zh-CN">中文</option>
+      </select>
+    </label>
+  </div>
+</div>
+<div id="switch-feedback" class="switch-feedback"></div>
+
+<main id="presence-view" class="device-view">
+  <div class="card">
+    <h2 data-i18n="section.connection">Connection</h2>
+    <p class="warn" data-i18n="connection.browserReq">Browser requirement: Chrome / Edge (desktop) or Android Chrome. iOS Safari does not support Web Bluetooth.</p>
+    <p class="warn" data-i18n="connection.configModeHint">Before use, hold the device button for 3 seconds to enter configuration mode (LED blinks at 1 Hz).</p>
+    <div class="row flex">
+      <button id="presence-btn-connect" data-i18n="button.connect">Connect Device</button>
+      <button id="presence-btn-disconnect" class="secondary" disabled data-i18n="button.disconnect">Disconnect</button>
+      <span id="presence-status" class="status status-disconnected" data-i18n="status.disconnected">Not connected</span>
+    </div>
+    <div class="row muted" id="presence-fw-version-row" style="display:none;">
+      <span data-i18n="label.fwVersion">Firmware Version</span>: <span id="presence-fw-version"></span>
+    </div>
+    <div class="row muted" id="presence-model-number-row" style="display:none;">
+      <span data-i18n="label.modelNumber">Model</span>: <span id="presence-model-number"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.aesKey">BTHome AES Key (16 bytes / 32 hex characters)</h2>
+    <div class="row flex">
+      <button id="presence-btn-read-key" disabled data-i18n="button.readKey">Read Current Key</button>
+      <span id="presence-current-key" class="hex">--</span>
+    </div>
+    <div class="row flex">
+      <label data-i18n="label.newKey">New Key</label>
+      <input type="text" id="presence-new-key" placeholder="32 hex characters, e.g. 00112233445566778899AABBCCDDEEFF" data-i18n-placeholder="placeholder.newKey" maxlength="32" style="flex:1;">
+      <button id="presence-btn-random-key" class="secondary" data-i18n="button.randomKey">Random Key</button>
+    </div>
+    <div class="row">
+      <button id="presence-btn-write-key" disabled data-i18n="button.writeKey">Apply and Save</button>
+      <span id="presence-key-feedback"></span>
+    </div>
+    <p class="warn" data-i18n="key.homeAssistantHint">This key is used for Home Assistant connection authentication.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.reportInterval">Report Interval</h2>
+    <div class="row flex">
+      <label data-i18n="label.interval">Interval</label>
+      <input type="number" id="presence-report-interval" min="10" max="600" step="1" value="" placeholder="10-600" style="width:100px;">
+      <span data-i18n="label.seconds">sec</span>
+      <button id="presence-btn-read-interval" disabled data-i18n="button.readInterval">Read</button>
+      <button id="presence-btn-write-interval" disabled data-i18n="button.writeInterval">Apply and Save</button>
+      <span id="presence-interval-feedback"></span>
+    </div>
+    <p class="warn" data-i18n="interval.hint">Set the periodic report interval (10-600 seconds). Persists after power off.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.radarParams">Radar Parameters (Common Settings)</h2>
+    <div class="grid">
+      <div><label>ONTH</label><input type="number" id="presence-p-onth" min="1" max="10" value="3"></div>
+      <div><label>HOLD</label><input type="number" id="presence-p-hold" min="1" max="100000" value="40"></div>
+      <div><label>R1TH</label><input type="number" id="presence-p-r1th" min="1" max="10000" value="10"></div>
+      <div><label>R2TH</label><input type="number" id="presence-p-r2th" min="1" max="10000" value="6"></div>
+      <div><label>R3TH</label><input type="number" id="presence-p-r3th" min="1" max="10000" value="6"></div>
+    </div>
+    <div class="row">
+      <button id="presence-btn-read-params" disabled data-i18n="button.readParams">Read Current Parameters</button>
+      <button id="presence-btn-apply-params" disabled data-i18n="button.applyParams">Set Current Parameters</button>
+      <span id="presence-params-feedback"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.rawAt">Raw AT Command</h2>
+    <div class="row">
+      <input type="text" id="presence-raw-at" placeholder="e.g. AT+R2TH=5 (no \r\n needed)" data-i18n-placeholder="placeholder.rawAt" maxlength="60">
+    </div>
+    <div class="row">
+      <button id="presence-btn-radar-init" class="secondary" disabled data-i18n="button.radarInit">Enter Config Mode</button>
+      <button id="presence-btn-send-at" disabled data-i18n="button.send">Send</button>
+    </div>
+    <p class="warn" data-i18n="rawAt.hint">For a single AT command, click "Enter Config Mode" first if the radar is not already in configuration mode. "Read Current Parameters" and "Set Current Parameters" handle this automatically.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.ota">Firmware Upgrade (OTA)</h2>
+    <div class="row flex">
+      <label data-i18n="label.firmware">Firmware</label>
+      <input type="file" id="presence-ota-file" accept=".bin,.hex" style="flex:1;">
+    </div>
+    <div class="row muted" id="presence-ota-file-info"></div>
+    <div class="row flex">
+      <button id="presence-btn-ota-info" disabled data-i18n="button.otaInfo">Query Device</button>
+      <button id="presence-btn-ota-start" disabled data-i18n="button.otaStart">Start Upgrade</button>
+      <span id="presence-ota-feedback"></span>
+    </div>
+    <div class="row">
+      <progress id="presence-ota-progress" value="0" max="100" style="width:100%; height:20px; display:none;"></progress>
+    </div>
+    <div class="row muted" id="presence-ota-status"></div>
+    <p class="warn" data-i18n="ota.hint">Select a .bin firmware file then click "Start Upgrade". Do not disconnect or close the page during the upgrade. The device will reboot automatically after completion.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.responseLog">Response Log</h2>
+    <pre id="presence-log" class="log"></pre>
+    <div class="row">
+      <button id="presence-btn-clear-log" class="secondary" data-i18n="button.clearLog">Clear Log</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.maintenance">Maintenance</h2>
+    <button id="presence-btn-factory" class="danger" disabled data-i18n="button.factoryKey">Restore Key</button>
+    <button id="presence-btn-reboot" class="danger" disabled data-i18n="button.reboot">Reboot Device</button>
+    <button id="presence-btn-radar-reset" class="danger" disabled data-i18n="button.radarReset">Reset Radar</button>
+    <span id="presence-radar-reset-feedback"></span>
+  </div>
+</main>
+
+<main id="door-view" class="device-view" hidden>
+  <div class="card">
+    <h2 data-i18n="section.connection">Connection</h2>
+    <p class="warn" data-i18n="connection.browserReq">Browser requirement: Chrome / Edge (desktop) or Android Chrome. iOS Safari does not support Web Bluetooth.</p>
+    <p class="warn" data-i18n="connection.configModeHint">Before use, hold the device button for 3 seconds to enter configuration mode (LED blinks at 1 Hz).</p>
+    <div class="row flex">
+      <button id="door-btn-connect" data-i18n="button.connect">Connect Device</button>
+      <button id="door-btn-disconnect" class="secondary" disabled data-i18n="button.disconnect">Disconnect</button>
+      <span id="door-status" class="status status-disconnected" data-i18n="status.disconnected">Not connected</span>
+    </div>
+    <div class="row muted" id="door-fw-version-row" style="display:none;">
+      <span data-i18n="label.fwVersion">Firmware Version</span>: <span id="door-fw-version"></span>
+    </div>
+    <div class="row muted" id="door-model-number-row" style="display:none;">
+      <span data-i18n="label.modelNumber">Model</span>: <span id="door-model-number"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.aesKey">BTHome AES Key (16 bytes / 32 hex characters)</h2>
+    <div class="row flex">
+      <button id="door-btn-read-key" disabled data-i18n="button.readKey">Read Current Key</button>
+      <span id="door-current-key" class="hex">--</span>
+    </div>
+    <div class="row flex">
+      <label data-i18n="label.newKey">New Key</label>
+      <input type="text" id="door-new-key" placeholder="32 hex characters, e.g. 00112233445566778899AABBCCDDEEFF" data-i18n-placeholder="placeholder.newKey" maxlength="32" style="flex:1;">
+      <button id="door-btn-random-key" class="secondary" data-i18n="button.randomKey">Random Key</button>
+    </div>
+    <div class="row">
+      <button id="door-btn-write-key" disabled data-i18n="button.writeKey">Apply and Save</button>
+      <span id="door-key-feedback"></span>
+    </div>
+    <p class="warn" data-i18n="key.homeAssistantHint">This key is used for Home Assistant connection authentication.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.debounce">Door Debounce Time</h2>
+    <div class="row flex">
+      <button id="door-btn-read-debounce" disabled data-i18n="button.readDebounce">Read Current</button>
+      <span id="door-current-debounce">--</span>
+    </div>
+    <div class="row flex">
+      <label data-i18n="label.newDebounce">Value (ms)</label>
+      <input type="number" id="door-new-debounce" placeholder="10 ~ 5000" min="10" max="5000" value="100" style="flex:1;">
+    </div>
+    <div class="row">
+      <button id="door-btn-write-debounce" disabled data-i18n="button.writeDebounce">Apply and Save</button>
+      <span id="door-debounce-feedback"></span>
+    </div>
+    <p class="warn" data-i18n="debounce.hint">Wait this long after a state change before reporting. Default 100ms.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.ota">Firmware Upgrade (OTA)</h2>
+    <div class="row flex">
+      <label data-i18n="label.firmware">Firmware</label>
+      <input type="file" id="door-ota-file" accept=".bin,.hex" style="flex:1;">
+    </div>
+    <div class="row muted" id="door-ota-file-info"></div>
+    <div class="row flex">
+      <button id="door-btn-ota-info" disabled data-i18n="button.otaInfo">Query Device</button>
+      <button id="door-btn-ota-start" disabled data-i18n="button.otaStart">Start Upgrade</button>
+      <span id="door-ota-feedback"></span>
+    </div>
+    <div class="row">
+      <progress id="door-ota-progress" value="0" max="100" style="width:100%; height:20px; display:none;"></progress>
+    </div>
+    <div class="row muted" id="door-ota-status"></div>
+    <p class="warn" data-i18n="ota.hint">Select a .bin firmware file then click "Start Upgrade". Do not disconnect or close the page during the upgrade. The device will reboot automatically after completion.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.responseLog">Response Log</h2>
+    <pre id="door-log" class="log"></pre>
+    <div class="row">
+      <button id="door-btn-clear-log" class="secondary" data-i18n="button.clearLog">Clear Log</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.maintenance">Maintenance</h2>
+    <button id="door-btn-factory" class="danger" disabled data-i18n="button.factoryKey">Restore Key</button>
+    <button id="door-btn-reboot" class="danger" disabled data-i18n="button.reboot">Reboot Device</button>
+  </div>
+</main>
+
+<script>
+const SERVICE_UUID     = '6b746868-0000-4254-486f-6d650000fcd2';
+const CHAR_KEY         = '6b746868-0001-4254-486f-6d650000fcd2';
+const CHAR_RADAR_CMD   = '6b746868-0002-4254-486f-6d650000fcd2';
+const CHAR_RADAR_RESP  = '6b746868-0003-4254-486f-6d650000fcd2';
+const CHAR_CTRL        = '6b746868-0004-4254-486f-6d650000fcd2';
+const CHAR_INTERVAL    = '6b746868-0005-4254-486f-6d650000fcd2';
+const CHAR_DEBOUNCE    = '6b746868-0002-4254-486f-6d650000fcd2';
+const OTA_SERVICE_UUID = 0xFEE0;
+const OTA_CHAR_UUID    = 0xFEE1;
+const LANG_STORAGE_KEY = 'bthome-config-lang';
+
+const I18N = {
+  en: {
+    'app.title': 'BTHome Config Tools',
+    'language.label': 'Language',
+    'view.label': 'Device',
+    'view.presence': 'Presence Sensor(PSBT03)',
+    'view.door': 'Door Sensor(SS01-DTH)',
+    'switch.otaRunning': 'OTA is running. Finish the upgrade before switching devices.',
+    'section.connection': 'Connection',
+    'connection.browserReq': 'Browser requirement: Chrome / Edge (desktop) or Android Chrome. iOS Safari does not support Web Bluetooth.',
+    'connection.configModeHint': 'Before use, hold the device button for 3 seconds to enter configuration mode (LED blinks at 1 Hz).',
+    'button.connect': 'Connect Device',
+    'button.disconnect': 'Disconnect',
+    'status.disconnected': 'Not connected',
+    'label.fwVersion': 'Firmware Version',
+    'label.modelNumber': 'Model',
+    'status.scanning': 'Scanning...',
+    'status.connecting': 'Connecting...',
+    'status.connected': 'Connected: {name}',
+    'status.error': 'Error: {message}',
+    'status.disconnectedAfter': 'Disconnected',
+    'status.bluetoothUnsupported': 'This browser does not support Web Bluetooth',
+    'section.aesKey': 'BTHome AES Key (16 bytes / 32 hex characters)',
+    'button.readKey': 'Read Current Key',
+    'label.newKey': 'New Key',
+    'placeholder.newKey': '32 hex characters, e.g. 00112233445566778899AABBCCDDEEFF',
+    'button.randomKey': 'Random Key',
+    'button.writeKey': 'Apply and Save',
+    'key.homeAssistantHint': 'This key is used for Home Assistant connection authentication.',
+    'error.invalidKey': 'Key must be 32 hex characters',
+    'feedback.keyWritten': 'Applied and saved',
+    'feedback.randomKeyGenerated': 'Random key generated (not written yet)',
+    'log.connectSuccess': 'Connected successfully',
+    'log.connectFailed': 'Connection failed: {message}',
+    'log.deviceDisconnected': 'Device disconnected',
+    'log.readKey': 'Read key: {hex}',
+    'log.readKeyFailed': 'Read key failed: {message}',
+    'log.writeKey': 'Wrote key: {hex}',
+    'log.writeKeyFailed': 'Write key failed: {message}',
+    'log.randomKeyGenerated': 'Generated random key: {hex}',
+    'section.reportInterval': 'Report Interval',
+    'label.interval': 'Interval',
+    'label.seconds': 'sec',
+    'button.readInterval': 'Read',
+    'button.writeInterval': 'Apply and Save',
+    'interval.hint': 'Set the periodic report interval (10-600 seconds). Persists after power off.',
+    'error.invalidInterval': 'Interval must be between 10 and 600 seconds',
+    'feedback.intervalWritten': 'Applied and saved',
+    'log.readInterval': 'Read interval: {value} sec',
+    'log.readIntervalFailed': 'Read interval failed: {message}',
+    'log.writeInterval': 'Wrote interval: {value} sec',
+    'log.writeIntervalFailed': 'Write interval failed: {message}',
+    'section.radarParams': 'Radar Parameters (Common Settings)',
+    'button.readParams': 'Read Current Parameters',
+    'button.applyParams': 'Set Current Parameters',
+    'section.rawAt': 'Raw AT Command',
+    'placeholder.rawAt': 'e.g. AT+R2TH=5 (no \\r\\n needed)',
+    'button.radarInit': 'Enter Config Mode',
+    'button.send': 'Send',
+    'rawAt.hint': 'For a single AT command, click "Enter Config Mode" first if the radar is not already in configuration mode. "Read Current Parameters" and "Set Current Parameters" handle this automatically.',
+    'log.enterConfigMode': '-> <7 spaces> (enter config mode)',
+    'feedback.paramsRead': 'Read: {values}',
+    'feedback.paramsPartial': 'Read {filled}/{total}; missing: {missed}',
+    'feedback.noResponse': '{cmd} no response (radar may not be in config mode)',
+    'feedback.paramsApplied': 'All parameters sent',
+    'log.readParamsFailed': 'Read config failed: {message}',
+    'log.sendFailed': 'Send failed: {message}',
+    'confirm.resetRadar': 'Reset radar? This will restore all radar parameters to factory defaults.',
+    'feedback.radarResetDone': 'Radar reset to factory defaults',
+    'log.radarResetFailed': 'Reset radar failed: {message}',
+    'section.debounce': 'Door Debounce Time',
+    'button.readDebounce': 'Read Current',
+    'label.newDebounce': 'Value (ms)',
+    'button.writeDebounce': 'Apply and Save',
+    'debounce.hint': 'Wait this long after a state change before reporting. Default 100ms.',
+    'error.invalidDebounce': 'Debounce must be between 10 and 5000 ms',
+    'feedback.debounceWritten': 'Applied and saved',
+    'log.readDebounce': 'Read debounce: {value} ms',
+    'log.readDebounceFailed': 'Read debounce failed: {message}',
+    'log.writeDebounce': 'Wrote debounce: {value} ms',
+    'log.writeDebounceFailed': 'Write debounce failed: {message}',
+    'section.ota': 'Firmware Upgrade (OTA)',
+    'label.firmware': 'Firmware',
+    'button.otaInfo': 'Query Device',
+    'button.otaStart': 'Start Upgrade',
+    'ota.hint': 'Select a .bin firmware file then click "Start Upgrade". Do not disconnect or close the page during the upgrade. The device will reboot automatically after completion.',
+    'ota.noService': 'Device does not support OTA service',
+    'ota.infoFailed': 'OTA query failed: {message}',
+    'ota.querying': 'Querying device info...',
+    'ota.deviceInfo': 'Device ImageSize={size}KB',
+    'ota.erasing': 'Erasing {blocks} blocks...',
+    'ota.eraseFailed': 'Erase failed: {status}',
+    'ota.eraseComplete': 'Erase complete',
+    'ota.programming': 'Programming... {current}/{total} bytes ({pct}%)',
+    'ota.programFailed': 'Program failed @ {offset}: {status}',
+    'ota.verifying': 'Verifying...',
+    'ota.verifyFailed': 'Verify failed @ {offset}',
+    'ota.finishing': 'Finishing upgrade, device rebooting...',
+    'ota.success': 'OTA upgrade successful! Device is rebooting.',
+    'ota.failed': 'OTA failed: {message}',
+    'ota.fileTooLarge': 'Firmware file too large ({size} bytes, max {max} bytes)',
+    'confirm.ota': 'Start OTA upgrade? Do not disconnect during the process.',
+    'section.responseLog': 'Response Log',
+    'button.clearLog': 'Clear Log',
+    'section.maintenance': 'Maintenance',
+    'button.factoryKey': 'Restore Key',
+    'button.reboot': 'Reboot Device',
+    'button.radarReset': 'Reset Radar',
+    'confirm.factoryResetPresence': 'Factory reset? This will clear the custom key.',
+    'confirm.factoryResetDoor': 'Factory reset? This will clear the custom key and debounce settings.',
+    'confirm.reboot': 'Reboot device?',
+    'log.ctrlSent': 'CTRL 0x{op} sent',
+    'log.ctrlFailed': 'CTRL failed: {message}'
+  },
+  'zh-CN': {
+    'app.title': 'BTHome 配置工具',
+    'language.label': '语言',
+    'view.label': '设备',
+    'view.presence': '人体存在传感器(PSBT03)',
+    'view.door': '门磁传感器(SS01-DTH)',
+    'switch.otaRunning': 'OTA 正在运行，请完成升级后再切换设备。',
+    'section.connection': '连接',
+    'connection.browserReq': '浏览器要求：Chrome / Edge (桌面) 或 Android Chrome。iOS Safari 不支持 Web Bluetooth。',
+    'connection.configModeHint': '使用前需在设备上长按按钮 3 秒进入配置模式（LED 1Hz 闪烁）。',
+    'button.connect': '连接设备',
+    'button.disconnect': '断开',
+    'status.disconnected': '未连接',
+    'label.fwVersion': '固件版本',
+    'label.modelNumber': '型号',
+    'status.scanning': '扫描中...',
+    'status.connecting': '连接中...',
+    'status.connected': '已连接: {name}',
+    'status.error': '错误: {message}',
+    'status.disconnectedAfter': '已断开',
+    'status.bluetoothUnsupported': '当前浏览器不支持 Web Bluetooth',
+    'section.aesKey': 'BTHome AES 密钥（16 字节 / 32 字符 hex）',
+    'button.readKey': '读取当前密钥',
+    'label.newKey': '新密钥',
+    'placeholder.newKey': '32 位十六进制字符，例如 00112233445566778899AABBCCDDEEFF',
+    'button.randomKey': '随机密钥',
+    'button.writeKey': '应用并保存',
+    'key.homeAssistantHint': '此密钥用于与 HomeAssistant 连接认证。',
+    'error.invalidKey': '密钥必须为 32 位十六进制字符',
+    'feedback.keyWritten': '已应用并保存',
+    'feedback.randomKeyGenerated': '已生成随机密钥（尚未写入）',
+    'log.connectSuccess': '连接成功',
+    'log.connectFailed': '连接失败: {message}',
+    'log.deviceDisconnected': '设备断开',
+    'log.readKey': '读取密钥: {hex}',
+    'log.readKeyFailed': '读取密钥失败: {message}',
+    'log.writeKey': '写入密钥: {hex}',
+    'log.writeKeyFailed': '写入密钥失败: {message}',
+    'log.randomKeyGenerated': '生成随机密钥: {hex}',
+    'section.reportInterval': '周期上报间隔',
+    'label.interval': '间隔',
+    'label.seconds': '秒',
+    'button.readInterval': '读取',
+    'button.writeInterval': '应用并保存',
+    'interval.hint': '设置周期上报间隔（10-600 秒），断电后保持。',
+    'error.invalidInterval': '间隔必须在 10-600 秒之间',
+    'feedback.intervalWritten': '已应用并保存',
+    'log.readInterval': '读取间隔: {value} 秒',
+    'log.readIntervalFailed': '读取间隔失败: {message}',
+    'log.writeInterval': '写入间隔: {value} 秒',
+    'log.writeIntervalFailed': '写入间隔失败: {message}',
+    'section.radarParams': '雷达参数（常用配置）',
+    'button.readParams': '读取当前参数',
+    'button.applyParams': '设置当前参数',
+    'section.rawAt': '原始 AT 命令',
+    'placeholder.rawAt': '例如 AT+R2TH=5（无需 \\r\\n）',
+    'button.radarInit': '进入配置模式',
+    'button.send': '发送',
+    'rawAt.hint': '单条 AT 命令前若雷达尚未进入配置模式，请先点"进入配置模式"。"读取当前参数"和"设置当前参数"会自动处理。',
+    'log.enterConfigMode': '-> <7 spaces> (进入配置模式)',
+    'feedback.paramsRead': '已读取: {values}',
+    'feedback.paramsPartial': '已读取 {filled}/{total}；缺失: {missed}',
+    'feedback.noResponse': '{cmd} 无响应（雷达可能未在配置模式）',
+    'feedback.paramsApplied': '全部参数已下发',
+    'log.readParamsFailed': '读取配置失败: {message}',
+    'log.sendFailed': '发送失败: {message}',
+    'confirm.resetRadar': '确认重置雷达？将恢复所有雷达参数为出厂默认值。',
+    'feedback.radarResetDone': '雷达已重置为出厂默认',
+    'log.radarResetFailed': '重置雷达失败: {message}',
+    'section.debounce': '门磁防抖时间',
+    'button.readDebounce': '读取当前值',
+    'label.newDebounce': '新值 (ms)',
+    'button.writeDebounce': '应用并保存',
+    'debounce.hint': '门磁状态变化后，等待此时间确认稳定再上报。默认 100ms。',
+    'error.invalidDebounce': '防抖时间须在 10 ~ 5000 ms 之间',
+    'feedback.debounceWritten': '已应用并保存',
+    'log.readDebounce': '读取防抖时间: {value} ms',
+    'log.readDebounceFailed': '读取防抖时间失败: {message}',
+    'log.writeDebounce': '写入防抖时间: {value} ms',
+    'log.writeDebounceFailed': '写入防抖时间失败: {message}',
+    'section.ota': '固件升级 (OTA)',
+    'label.firmware': '固件文件',
+    'button.otaInfo': '查询设备',
+    'button.otaStart': '开始升级',
+    'ota.hint': '选择 .bin 固件文件后点击"开始升级"。升级过程中请勿断开连接或关闭页面。升级完成后设备将自动重启。',
+    'ota.noService': '设备不支持 OTA 服务',
+    'ota.infoFailed': 'OTA 查询失败: {message}',
+    'ota.querying': '正在查询设备信息...',
+    'ota.deviceInfo': '设备 ImageSize={size}KB',
+    'ota.erasing': '正在擦除 {blocks} 个块...',
+    'ota.eraseFailed': '擦除失败: {status}',
+    'ota.eraseComplete': '擦除完成',
+    'ota.programming': '写入中... {current}/{total} 字节 ({pct}%)',
+    'ota.programFailed': '写入失败 @ {offset}: {status}',
+    'ota.verifying': '正在校验...',
+    'ota.verifyFailed': '校验失败 @ {offset}',
+    'ota.finishing': '正在完成升级，设备即将重启...',
+    'ota.success': 'OTA 升级成功！设备正在重启。',
+    'ota.failed': 'OTA 失败: {message}',
+    'ota.fileTooLarge': '固件文件过大 ({size} 字节，最大 {max} 字节)',
+    'confirm.ota': '确认开始 OTA 升级？升级过程中请勿断开连接。',
+    'section.responseLog': '响应日志',
+    'button.clearLog': '清空日志',
+    'section.maintenance': '维护',
+    'button.factoryKey': '恢复密钥',
+    'button.reboot': '重启设备',
+    'button.radarReset': '重置雷达',
+    'confirm.factoryResetPresence': '确认出厂复位？将清除自定义密钥。',
+    'confirm.factoryResetDoor': '确认恢复密钥？将清除自定义密钥和防抖设置。',
+    'confirm.reboot': '确认重启设备？',
+    'log.ctrlSent': 'CTRL 0x{op} 已发送',
+    'log.ctrlFailed': 'CTRL 失败: {message}'
+  }
+};
+
+const $ = id => document.getElementById(id);
+let currentLang = getInitialLanguage();
+let activeView = 'presence';
+let switchFeedbackKey = '';
+let bluetoothSupported = true;
+
+function getInitialLanguage() {
+  try {
+    const saved = localStorage.getItem(LANG_STORAGE_KEY);
+    if (saved === 'zh-CN' || saved === 'en') return saved;
+  } catch (e) {
+    /* Keep English as the hard default when storage is unavailable. */
+  }
+  return 'en';
+}
+
+function normalizeLanguage(lang) {
+  return lang === 'zh-CN' ? 'zh-CN' : 'en';
+}
+
+function t(key, vars = {}) {
+  const dict = I18N[currentLang] || I18N.en;
+  const fallback = I18N.en;
+  const template = dict[key] || fallback[key] || key;
+  return template.replace(/\{(\w+)\}/g, (match, name) =>
+    Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : match
+  );
+}
+
+function makeI18nError(key, vars = {}) {
+  const error = new Error(t(key, vars));
+  error.i18nKey = key;
+  error.i18nVars = vars;
+  return error;
+}
+
+function getErrorText(error) {
+  if (error && error.i18nKey) return t(error.i18nKey, error.i18nVars || {});
+  return error && error.message ? error.message : String(error);
+}
+
+function hexToBytes(hex) {
+  if (hex.length !== 32 || !/^[0-9a-fA-F]+$/.test(hex)) {
+    throw makeI18nError('error.invalidKey');
+  }
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return bytes;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0').toUpperCase()).join('');
+}
+
+function txtToBytes(s) {
+  return new TextEncoder().encode(s);
+}
+
+function bytesToTxt(bytes) {
+  return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+class DeviceController {
+  constructor(type) {
+    this.type = type;
+    this.prefix = type;
+    this.device = null;
+    this.server = null;
+    this.chars = {};
+    this.lastNotify = null;
+    this.lastNotifyResolve = null;
+    this.statusState = { key: 'status.disconnected', kind: 'disconnected', vars: {} };
+    this.feedbackStates = {};
+    this.otaFileData = null;
+    this.otaRunning = false;
+    this.onDisconnected = this.onDisconnected.bind(this);
+    this.onRadarResp = this.onRadarResp.bind(this);
+  }
+
+  id(name) {
+    return `${this.prefix}-${name}`;
+  }
+
+  el(name) {
+    return $(this.id(name));
+  }
+
+  isConnected() {
+    return !!(this.device && this.device.gatt && this.device.gatt.connected);
+  }
+
+  renderStatus() {
+    const el = this.el('status');
+    if (!el) return;
+    el.textContent = t(this.statusState.key, this.statusState.vars);
+    el.className = `status status-${this.statusState.kind}`;
+  }
+
+  setStatusKey(key, kind, vars = {}) {
+    this.statusState = { key, kind, vars };
+    this.renderStatus();
+  }
+
+  renderFeedback(name) {
+    const el = this.el(name);
+    if (!el) return;
+    const state = this.feedbackStates[name];
+    el.textContent = state ? (state.key ? t(state.key, state.vars) : state.text) : '';
+    el.className = state ? state.className : '';
+  }
+
+  setFeedback(name, key, className = '', vars = {}) {
+    this.feedbackStates[name] = { key, className, vars };
+    this.renderFeedback(name);
+  }
+
+  setFeedbackText(name, text, className = '') {
+    this.feedbackStates[name] = { text, className };
+    this.renderFeedback(name);
+  }
+
+  clearFeedback(name) {
+    this.feedbackStates[name] = null;
+    this.renderFeedback(name);
+  }
+
+  setFeedbackError(name, error, className = 'err') {
+    if (error && error.i18nKey) {
+      this.setFeedback(name, error.i18nKey, className, error.i18nVars || {});
+    } else {
+      this.setFeedbackText(name, getErrorText(error), className);
+    }
+  }
+
+  renderAllFeedback() {
+    Object.keys(this.feedbackStates).forEach(name => this.renderFeedback(name));
+  }
+
+  log(msg) {
+    const logEl = this.el('log');
+    const ts = new Date().toLocaleTimeString();
+    logEl.textContent += `[${ts}] ${msg}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  setControlDisabled(name, disabled) {
+    const el = this.el(name);
+    if (el) el.disabled = disabled;
+  }
+
+  setUiConnected(connected) {
+    const commonIds = ['btn-read-key', 'btn-write-key', 'btn-factory', 'btn-reboot', 'btn-ota-info'];
+    commonIds.forEach(id => this.setControlDisabled(id, !connected));
+    this.setControlDisabled('btn-connect', connected);
+    this.setControlDisabled('btn-disconnect', !connected);
+    this.setControlDisabled('btn-ota-start', !(connected && this.otaFileData && this.chars.ota));
+
+    if (this.type === 'presence') {
+      ['btn-read-params', 'btn-apply-params', 'btn-radar-init', 'btn-send-at', 'btn-radar-reset']
+        .forEach(id => this.setControlDisabled(id, !connected));
+      this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
+      this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
+    } else {
+      this.setControlDisabled('btn-read-debounce', !connected);
+      this.setControlDisabled('btn-write-debounce', !connected);
+    }
+  }
+
+  clearDeviceInfo() {
+    this.el('fw-version').textContent = '';
+    this.el('fw-version-row').style.display = 'none';
+    this.el('model-number').textContent = '';
+    this.el('model-number-row').style.display = 'none';
+  }
+
+  async readDeviceInfo() {
+    try {
+      const disService = await this.server.getPrimaryService(0x180a);
+      const fwChar = await disService.getCharacteristic(0x2a26);
+      const fwVal = await fwChar.readValue();
+      this.el('fw-version').textContent = new TextDecoder().decode(fwVal);
+      this.el('fw-version-row').style.display = 'block';
+      try {
+        const modelChar = await disService.getCharacteristic(0x2a24);
+        const modelVal = await modelChar.readValue();
+        this.el('model-number').textContent = new TextDecoder().decode(modelVal);
+        this.el('model-number-row').style.display = 'block';
+      } catch (e) {
+        this.el('model-number').textContent = '';
+        this.el('model-number-row').style.display = 'none';
+      }
+    } catch (e) {
+      this.clearDeviceInfo();
+    }
+  }
+
+  async connect() {
+    try {
+      this.setStatusKey('status.scanning', 'disconnected');
+      this.device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }],
+        optionalServices: [OTA_SERVICE_UUID, 0x180a]
+      });
+      this.device.addEventListener('gattserverdisconnected', this.onDisconnected);
+      this.setStatusKey('status.connecting', 'disconnected');
+      this.server = await this.device.gatt.connect();
+      const service = await this.server.getPrimaryService(SERVICE_UUID);
+      this.chars.key = await service.getCharacteristic(CHAR_KEY);
+      this.chars.ctrl = await service.getCharacteristic(CHAR_CTRL);
+
+      if (this.type === 'presence') {
+        this.chars.radarCmd = await service.getCharacteristic(CHAR_RADAR_CMD);
+        this.chars.radarResp = await service.getCharacteristic(CHAR_RADAR_RESP);
+        try {
+          this.chars.interval = await service.getCharacteristic(CHAR_INTERVAL);
+        } catch (e) {
+          this.chars.interval = null;
+        }
+        await this.chars.radarResp.startNotifications();
+        this.chars.radarResp.addEventListener('characteristicvaluechanged', this.onRadarResp);
+      } else {
+        this.chars.debounce = await service.getCharacteristic(CHAR_DEBOUNCE);
+      }
+
+      try {
+        const otaService = await this.server.getPrimaryService(OTA_SERVICE_UUID);
+        this.chars.ota = await otaService.getCharacteristic(OTA_CHAR_UUID);
+      } catch (e) {
+        this.chars.ota = null;
+      }
+
+      await this.readDeviceInfo();
+      this.setStatusKey('status.connected', 'connected', { name: this.device.name || '' });
+      this.setUiConnected(true);
+      this.log(t('log.connectSuccess'));
+    } catch (e) {
+      this.setStatusKey('status.error', 'error', { message: getErrorText(e) });
+      this.setUiConnected(false);
+      this.log(t('log.connectFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  onDisconnected() {
+    this.setStatusKey('status.disconnectedAfter', 'disconnected');
+    this.setUiConnected(false);
+    this.clearDeviceInfo();
+    this.log(t('log.deviceDisconnected'));
+    this.device = null;
+    this.server = null;
+    this.chars = {};
+    this.lastNotify = null;
+    this.lastNotifyResolve = null;
+  }
+
+  disconnect() {
+    if (this.isConnected()) {
+      this.device.gatt.disconnect();
+    } else {
+      this.setUiConnected(false);
+    }
+  }
+
+  async readKey() {
+    try {
+      const v = await this.chars.key.readValue();
+      const hex = bytesToHex(new Uint8Array(v.buffer));
+      this.el('current-key').textContent = hex;
+      this.log(t('log.readKey', { hex }));
+    } catch (e) {
+      this.log(t('log.readKeyFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async writeKey() {
+    this.clearFeedback('key-feedback');
+    try {
+      const hex = this.el('new-key').value.trim();
+      const bytes = hexToBytes(hex);
+      await this.chars.key.writeValue(bytes);
+      this.setFeedback('key-feedback', 'feedback.keyWritten', 'ok');
+      this.log(t('log.writeKey', { hex: bytesToHex(bytes) }));
+    } catch (e) {
+      this.setFeedbackError('key-feedback', e);
+      this.log(t('log.writeKeyFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  generateRandomKey() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const hex = bytesToHex(bytes);
+    this.el('new-key').value = hex;
+    this.setFeedback('key-feedback', 'feedback.randomKeyGenerated', 'ok');
+    this.log(t('log.randomKeyGenerated', { hex }));
+  }
+
+  async readInterval() {
+    if (!this.chars.interval) return;
+    try {
+      const v = await this.chars.interval.readValue();
+      const value = v.getUint16(0, true);
+      this.el('report-interval').value = value;
+      this.log(t('log.readInterval', { value }));
+    } catch (e) {
+      this.log(t('log.readIntervalFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async writeInterval() {
+    if (!this.chars.interval) return;
+    this.clearFeedback('interval-feedback');
+    try {
+      const value = parseInt(this.el('report-interval').value, 10);
+      if (isNaN(value) || value < 10 || value > 600) {
+        throw makeI18nError('error.invalidInterval');
+      }
+      const buf = new Uint8Array(2);
+      buf[0] = value & 0xFF;
+      buf[1] = (value >> 8) & 0xFF;
+      await this.chars.interval.writeValue(buf);
+      this.setFeedback('interval-feedback', 'feedback.intervalWritten', 'ok');
+      this.log(t('log.writeInterval', { value }));
+    } catch (e) {
+      this.setFeedbackError('interval-feedback', e);
+      this.log(t('log.writeIntervalFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  onRadarResp(event) {
+    const value = event.target.value;
+    const bytes = new Uint8Array(value.buffer);
+    const txt = bytesToTxt(bytes).replace(/\r\n$/, '').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+    this.log('<- ' + txt);
+    this.lastNotify = txt;
+    if (this.lastNotifyResolve) {
+      const resolve = this.lastNotifyResolve;
+      this.lastNotifyResolve = null;
+      resolve(txt);
+    }
+  }
+
+  waitNotify(timeoutMs = 1500) {
+    return new Promise(resolve => {
+      let done = false;
+      this.lastNotifyResolve = value => {
+        if (!done) {
+          done = true;
+          resolve(value);
+        }
+      };
+      setTimeout(() => {
+        if (!done) {
+          done = true;
+          this.lastNotifyResolve = null;
+          resolve(null);
+        }
+      }, timeoutMs);
+    });
+  }
+
+  async sendRadarCmd(cmd) {
+    this.log('-> ' + cmd);
+    await this.chars.radarCmd.writeValue(txtToBytes(cmd));
+    return await this.waitNotify(1500);
+  }
+
+  async readParams() {
+    const map = { ONTH: 'p-onth', HOLD: 'p-hold', R1TH: 'p-r1th', R2TH: 'p-r2th', R3TH: 'p-r3th' };
+    this.clearFeedback('params-feedback');
+    try {
+      this.log(t('log.enterConfigMode'));
+      await this.sendRadarCmd('       ');
+      const names = Object.keys(map);
+      const filled = [];
+      const missed = [];
+      for (const name of names) {
+        const resp = await this.sendRadarCmd('AT+' + name + '?');
+        if (resp === null) {
+          missed.push(name);
+          continue;
+        }
+        const match = resp.match(/^AT\+(\w+)\s*=\s*(\d+)/);
+        if (!match || !map[match[1]]) {
+          missed.push(name);
+          continue;
+        }
+        this.el(map[match[1]]).value = match[2];
+        filled.push(match[1] + '=' + match[2]);
+      }
+      if (missed.length === 0) {
+        this.setFeedback('params-feedback', 'feedback.paramsRead', 'ok', { values: filled.join(', ') });
+      } else {
+        this.setFeedback('params-feedback', 'feedback.paramsPartial', 'warn', {
+          filled: filled.length,
+          total: names.length,
+          missed: missed.join(',')
+        });
+      }
+    } catch (e) {
+      this.setFeedbackError('params-feedback', e);
+      this.log(t('log.readParamsFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async applyParams() {
+    this.clearFeedback('params-feedback');
+    try {
+      this.log(t('log.enterConfigMode'));
+      await this.sendRadarCmd('       ');
+      const cmds = [
+        'AT+ONTH=' + this.el('p-onth').value,
+        'AT+HOLD=' + this.el('p-hold').value,
+        'AT+R1TH=' + this.el('p-r1th').value,
+        'AT+R2TH=' + this.el('p-r2th').value,
+        'AT+R3TH=' + this.el('p-r3th').value
+      ];
+      for (const cmd of cmds) {
+        const resp = await this.sendRadarCmd(cmd);
+        if (resp === null) {
+          this.setFeedback('params-feedback', 'feedback.noResponse', 'err', { cmd });
+          return;
+        }
+      }
+      this.setFeedback('params-feedback', 'feedback.paramsApplied', 'ok');
+    } catch (e) {
+      this.setFeedbackError('params-feedback', e);
+    }
+  }
+
+  async radarEnterConfig() {
+    try {
+      await this.sendRadarCmd('       ');
+    } catch (e) {
+      this.log(t('log.sendFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async sendRawAt() {
+    const cmd = this.el('raw-at').value.trim();
+    if (!cmd) return;
+    try {
+      await this.sendRadarCmd(cmd);
+    } catch (e) {
+      this.log(t('log.sendFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async resetRadar() {
+    if (!confirm(t('confirm.resetRadar'))) return;
+    this.clearFeedback('radar-reset-feedback');
+    try {
+      this.log(t('log.enterConfigMode'));
+      await this.sendRadarCmd('       ');
+      const resp = await this.sendRadarCmd('AT+INIT');
+      if (resp === null) {
+        this.setFeedback('radar-reset-feedback', 'feedback.noResponse', 'err', { cmd: 'AT+INIT' });
+        return;
+      }
+      this.setFeedback('radar-reset-feedback', 'feedback.radarResetDone', 'ok');
+    } catch (e) {
+      this.setFeedbackError('radar-reset-feedback', e);
+      this.log(t('log.radarResetFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async readDebounce() {
+    try {
+      const v = await this.chars.debounce.readValue();
+      const value = v.getUint16(0, true);
+      this.el('current-debounce').textContent = value + ' ms';
+      this.el('new-debounce').value = value;
+      this.log(t('log.readDebounce', { value }));
+    } catch (e) {
+      this.log(t('log.readDebounceFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async writeDebounce() {
+    this.clearFeedback('debounce-feedback');
+    try {
+      const value = parseInt(this.el('new-debounce').value, 10);
+      if (isNaN(value) || value < 10 || value > 5000) {
+        throw makeI18nError('error.invalidDebounce');
+      }
+      const buf = new ArrayBuffer(2);
+      new DataView(buf).setUint16(0, value, true);
+      await this.chars.debounce.writeValue(buf);
+      this.setFeedback('debounce-feedback', 'feedback.debounceWritten', 'ok');
+      this.log(t('log.writeDebounce', { value }));
+    } catch (e) {
+      this.setFeedbackError('debounce-feedback', e);
+      this.log(t('log.writeDebounceFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async ctrlOp(op) {
+    try {
+      await this.chars.ctrl.writeValue(new Uint8Array([op]));
+      this.log(t('log.ctrlSent', { op: op.toString(16) }));
+    } catch (e) {
+      this.log(t('log.ctrlFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  otaSetStatus(msg) {
+    this.el('ota-status').textContent = msg;
+    this.log(msg);
+  }
+
+  otaSetProgress(pct) {
+    const el = this.el('ota-progress');
+    el.style.display = 'block';
+    el.value = Math.round(pct);
+  }
+
+  async otaWriteRead(data, readDelay) {
+    await this.chars.ota.writeValueWithResponse(new Uint8Array(data));
+    await sleep(readDelay);
+    const resp = await this.chars.ota.readValue();
+    return new Uint8Array(resp.buffer);
+  }
+
+  async otaQueryInfo() {
+    if (!this.chars.ota) {
+      this.setFeedback('ota-feedback', 'ota.noService', 'err');
+      this.log(t('ota.noService'));
+      return;
+    }
+    this.clearFeedback('ota-feedback');
+    try {
+      const buf = new Uint8Array(20);
+      buf[0] = 0x84;
+      buf[1] = 0x00;
+      const resp = await this.otaWriteRead(buf, 200);
+      const imageSize = resp[1] | (resp[2] << 8) | (resp[3] << 16) | (resp[4] << 24);
+      const blockSize = resp[5] | (resp[6] << 8);
+      const chipId = resp[7] | (resp[8] << 8);
+      const info = `ImageFlag=0x${resp[0].toString(16).padStart(2,'0')}, ImageSize=${imageSize/1024}KB, BlockSize=${blockSize}, ChipID=0x${chipId.toString(16)}`;
+      this.otaSetStatus(info);
+      this.setFeedbackText('ota-feedback', info, 'ok');
+    } catch (e) {
+      this.setFeedbackError('ota-feedback', e);
+      this.log(t('ota.infoFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async startOTA() {
+    const OTA_CMD_PROM = 0x80;
+    const OTA_CMD_ERASE = 0x81;
+    const OTA_CMD_VERIFY = 0x82;
+    const OTA_CMD_END = 0x83;
+    const OTA_CMD_INFO = 0x84;
+    const OTA_CHUNK_SIZE = 240;
+    const OTA_BLOCK_SIZE = 4096;
+    const OTA_ADDR_BASE = 0x1000 / 16;
+    const IMAGE_MAX = 216 * 1024;
+
+    if (!this.otaFileData || !this.chars.ota || this.otaRunning) return;
+    if (!confirm(t('confirm.ota'))) return;
+
+    this.otaRunning = true;
+    this.setControlDisabled('btn-ota-start', true);
+    this.setControlDisabled('btn-ota-info', true);
+    this.clearFeedback('ota-feedback');
+
+    try {
+      const firmware = new Uint8Array(this.otaFileData);
+      const totalBytes = firmware.byteLength;
+      if (totalBytes > IMAGE_MAX) {
+        throw makeI18nError('ota.fileTooLarge', { size: totalBytes, max: IMAGE_MAX });
+      }
+
+      this.otaSetStatus(t('ota.querying'));
+      const infoBuf = new Uint8Array(20);
+      infoBuf[0] = OTA_CMD_INFO;
+      infoBuf[1] = 0x00;
+      const infoResp = await this.otaWriteRead(infoBuf, 200);
+      const imageSize = infoResp[1] | (infoResp[2] << 8) | (infoResp[3] << 16) | (infoResp[4] << 24);
+      this.otaSetStatus(t('ota.deviceInfo', { size: imageSize / 1024 }));
+
+      const blockCount = Math.ceil(totalBytes / OTA_BLOCK_SIZE);
+      this.otaSetStatus(t('ota.erasing', { blocks: blockCount }));
+      this.otaSetProgress(0);
+
+      const eraseBuf = new Uint8Array(6);
+      eraseBuf[0] = OTA_CMD_ERASE;
+      eraseBuf[1] = 0x04;
+      eraseBuf[2] = OTA_ADDR_BASE & 0xFF;
+      eraseBuf[3] = (OTA_ADDR_BASE >> 8) & 0xFF;
+      eraseBuf[4] = blockCount & 0xFF;
+      eraseBuf[5] = (blockCount >> 8) & 0xFF;
+      await this.chars.ota.writeValueWithResponse(new Uint8Array(eraseBuf));
+
+      await sleep(blockCount * 80 + 1000);
+      const eraseResp = await this.chars.ota.readValue();
+      const eraseStatus = new Uint8Array(eraseResp.buffer);
+      if (eraseStatus.length > 0 && eraseStatus[0] !== 0) {
+        throw makeI18nError('ota.eraseFailed', { status: '0x' + eraseStatus[0].toString(16) });
+      }
+      this.otaSetStatus(t('ota.eraseComplete'));
+
+      const totalChunks = Math.ceil(totalBytes / OTA_CHUNK_SIZE);
+      for (let i = 0; i < totalChunks; i++) {
+        const offset = i * OTA_CHUNK_SIZE;
+        const end = Math.min(offset + OTA_CHUNK_SIZE, totalBytes);
+        const chunk = firmware.slice(offset, end);
+        const addr16 = offset / 16 + OTA_ADDR_BASE;
+        const progBuf = new Uint8Array(4 + chunk.length);
+        progBuf[0] = OTA_CMD_PROM;
+        progBuf[1] = chunk.length;
+        progBuf[2] = addr16 & 0xFF;
+        progBuf[3] = (addr16 >> 8) & 0xFF;
+        progBuf.set(chunk, 4);
+        const progResp = await this.otaWriteRead(progBuf, 20);
+        if (progResp.length > 0 && progResp[0] !== 0) {
+          throw makeI18nError('ota.programFailed', { offset: '0x' + offset.toString(16), status: '0x' + progResp[0].toString(16) });
+        }
+        const pct = ((i + 1) / totalChunks) * 100;
+        this.otaSetProgress(pct);
+        if ((i + 1) % 20 === 0 || i === totalChunks - 1) {
+          this.otaSetStatus(t('ota.programming', { current: end, total: totalBytes, pct: Math.round(pct) }));
+        }
+      }
+
+      this.otaSetStatus(t('ota.verifying'));
+      for (let i = 0; i < totalChunks; i++) {
+        const offset = i * OTA_CHUNK_SIZE;
+        const end = Math.min(offset + OTA_CHUNK_SIZE, totalBytes);
+        const chunk = firmware.slice(offset, end);
+        const addr16 = offset / 16 + OTA_ADDR_BASE;
+        const verBuf = new Uint8Array(4 + chunk.length);
+        verBuf[0] = OTA_CMD_VERIFY;
+        verBuf[1] = chunk.length;
+        verBuf[2] = addr16 & 0xFF;
+        verBuf[3] = (addr16 >> 8) & 0xFF;
+        verBuf.set(chunk, 4);
+        const verResp = await this.otaWriteRead(verBuf, 20);
+        if (verResp.length > 0 && verResp[0] !== 0) {
+          throw makeI18nError('ota.verifyFailed', { offset: '0x' + offset.toString(16) });
+        }
+        this.otaSetProgress(((i + 1) / totalChunks) * 100);
+      }
+
+      this.otaSetStatus(t('ota.finishing'));
+      const endBuf = new Uint8Array(4);
+      endBuf[0] = OTA_CMD_END;
+      endBuf[1] = 0x00;
+      endBuf[2] = 0x00;
+      endBuf[3] = 0x00;
+      try {
+        await this.chars.ota.writeValueWithResponse(new Uint8Array(endBuf));
+      } catch (e) {
+        /* Device reboot during OTA end is expected. */
+      }
+
+      this.otaSetStatus(t('ota.success'));
+      this.setFeedback('ota-feedback', 'ota.success', 'ok');
+      this.otaSetProgress(100);
+    } catch (e) {
+      this.otaSetStatus(getErrorText(e));
+      this.setFeedbackError('ota-feedback', e);
+      this.log(t('ota.failed', { message: getErrorText(e) }));
+    } finally {
+      this.otaRunning = false;
+      if (this.isConnected()) {
+        this.setControlDisabled('btn-ota-info', false);
+        this.setControlDisabled('btn-ota-start', !(this.otaFileData && this.chars.ota));
+      }
+    }
+  }
+
+  onOtaFileSelected(event) {
+    const file = event.target.files[0];
+    if (!file) {
+      this.otaFileData = null;
+      this.el('ota-file-info').textContent = '';
+      this.setControlDisabled('btn-ota-start', true);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      this.otaFileData = e.target.result;
+      this.el('ota-file-info').textContent = `${file.name} (${this.otaFileData.byteLength} bytes / ${(this.otaFileData.byteLength / 1024).toFixed(1)} KB)`;
+      this.setControlDisabled('btn-ota-start', !(this.isConnected() && this.chars.ota));
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  bindEvents() {
+    this.el('btn-connect').addEventListener('click', () => this.connect());
+    this.el('btn-disconnect').addEventListener('click', () => this.disconnect());
+    this.el('btn-read-key').addEventListener('click', () => this.readKey());
+    this.el('btn-write-key').addEventListener('click', () => this.writeKey());
+    this.el('btn-random-key').addEventListener('click', () => this.generateRandomKey());
+    this.el('btn-clear-log').addEventListener('click', () => { this.el('log').textContent = ''; });
+    this.el('btn-factory').addEventListener('click', () => {
+      const confirmKey = this.type === 'door' ? 'confirm.factoryResetDoor' : 'confirm.factoryResetPresence';
+      if (confirm(t(confirmKey))) this.ctrlOp(0x02);
+    });
+    this.el('btn-reboot').addEventListener('click', () => {
+      if (confirm(t('confirm.reboot'))) this.ctrlOp(0x03);
+    });
+    this.el('ota-file').addEventListener('change', event => this.onOtaFileSelected(event));
+    this.el('btn-ota-info').addEventListener('click', () => this.otaQueryInfo());
+    this.el('btn-ota-start').addEventListener('click', () => this.startOTA());
+
+    if (this.type === 'presence') {
+      this.el('btn-read-interval').addEventListener('click', () => this.readInterval());
+      this.el('btn-write-interval').addEventListener('click', () => this.writeInterval());
+      this.el('btn-read-params').addEventListener('click', () => this.readParams());
+      this.el('btn-apply-params').addEventListener('click', () => this.applyParams());
+      this.el('btn-radar-init').addEventListener('click', () => this.radarEnterConfig());
+      this.el('btn-send-at').addEventListener('click', () => this.sendRawAt());
+      this.el('btn-radar-reset').addEventListener('click', () => this.resetRadar());
+    } else {
+      this.el('btn-read-debounce').addEventListener('click', () => this.readDebounce());
+      this.el('btn-write-debounce').addEventListener('click', () => this.writeDebounce());
+    }
+  }
+}
+
+const controllers = {
+  presence: new DeviceController('presence'),
+  door: new DeviceController('door')
+};
+
+function applyLanguage() {
+  document.documentElement.lang = currentLang;
+  document.title = t('app.title');
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+    el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel));
+  });
+  $('language-select').value = currentLang;
+  $('device-select').value = activeView;
+  $('switch-feedback').textContent = switchFeedbackKey ? t(switchFeedbackKey) : '';
+  Object.values(controllers).forEach(controller => {
+    controller.renderStatus();
+    controller.renderAllFeedback();
+  });
+}
+
+function setLanguage(lang) {
+  currentLang = normalizeLanguage(lang);
+  try {
+    localStorage.setItem(LANG_STORAGE_KEY, currentLang);
+  } catch (e) {
+    /* Ignore storage failures; the current page still switches languages. */
+  }
+  applyLanguage();
+}
+
+function showView(type) {
+  activeView = type;
+  $('presence-view').hidden = type !== 'presence';
+  $('door-view').hidden = type !== 'door';
+  $('device-select').value = type;
+  const target = controllers[type];
+  if (!target.isConnected() && !target.device) {
+    if (bluetoothSupported) {
+      target.setStatusKey('status.disconnected', 'disconnected');
+    } else {
+      target.setStatusKey('status.bluetoothUnsupported', 'error');
+      target.setControlDisabled('btn-connect', true);
+    }
+  }
+}
+
+function selectView(type) {
+  if (type === activeView) return;
+  const activeController = controllers[activeView];
+  if (activeController.otaRunning) {
+    switchFeedbackKey = 'switch.otaRunning';
+    $('device-select').value = activeView;
+    $('switch-feedback').textContent = t(switchFeedbackKey);
+    activeController.log(t('switch.otaRunning'));
+    return;
+  }
+  switchFeedbackKey = '';
+  $('switch-feedback').textContent = '';
+  if (activeController.isConnected()) {
+    activeController.disconnect();
+  }
+  showView(type);
+}
+
+function initBluetoothAvailability() {
+  if (navigator.bluetooth) return;
+  bluetoothSupported = false;
+  Object.values(controllers).forEach(controller => {
+    controller.setStatusKey('status.bluetoothUnsupported', 'error');
+    controller.setControlDisabled('btn-connect', true);
+  });
+}
+
+Object.values(controllers).forEach(controller => controller.bindEvents());
+$('language-select').addEventListener('change', event => setLanguage(event.target.value));
+$('device-select').addEventListener('change', event => selectView(event.target.value));
+
+showView('presence');
+applyLanguage();
+initBluetoothAvailability();
+</script>
+</body>
+</html>
