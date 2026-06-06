@@ -7,7 +7,8 @@ A Web Bluetooth configuration tool for connecting to and configuring supported B
 ## Supported Devices
 
 - Presence sensor `PSBT03`
-- Door sensor `SS01-DTH`
+- Door/window sensor `SS01-DTH`
+- Wireless button `WS01`
 
 ## Features
 
@@ -16,6 +17,7 @@ A Web Bluetooth configuration tool for connecting to and configuring supported B
 - Configure presence sensor radar parameters: `ONTH`, `HOLD`, `R1TH`, `R2TH`, and `R3TH`
 - Send raw radar AT commands to the presence sensor
 - Configure door sensor debounce time, from `10` to `5000` ms
+- Configure the button advertising interval, from `5` to `3600` seconds
 - Upgrade firmware over OTA
 - Restore key, reboot device, and reset radar parameters
 
@@ -53,6 +55,10 @@ When reading or applying common radar parameters, the tool automatically handles
 ### Door Sensor
 
 The door sensor supports debounce time configuration from `10` to `5000` ms. The default value is `100` ms. After a state change, the device waits for this duration before reporting the stable state.
+
+### Button
+
+The button supports advertising interval configuration from `5` to `3600` seconds. The default value is `60` s. The device broadcasts sensor data once per this interval, and the setting persists after power loss. To configure a button, hold its button for `8` seconds to enter configuration mode (LED blinks at 1 Hz).
 
 ## OTA Upgrade
 

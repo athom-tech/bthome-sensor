@@ -59,6 +59,7 @@
       <select id="device-select" aria-label="Device" data-i18n-aria-label="view.label">
         <option value="presence" data-i18n="view.presence">Presence Sensor</option>
         <option value="door" data-i18n="view.door">Door Sensor</option>
+        <option value="button" data-i18n="view.button">Button</option>
       </select>
     </label>
     <label class="picker">
@@ -272,6 +273,89 @@
   </div>
 </main>
 
+<main id="button-view" class="device-view" hidden>
+  <div class="card">
+    <h2 data-i18n="section.connection">Connection</h2>
+    <p class="warn" data-i18n="connection.browserReq">Browser requirement: Chrome / Edge (desktop) or Android Chrome. iOS Safari does not support Web Bluetooth.</p>
+    <p class="warn" data-i18n="connection.configModeHintButton">Before use, hold the device button for 8 seconds to enter configuration mode (LED blinks at 1 Hz).</p>
+    <div class="row flex">
+      <button id="button-btn-connect" data-i18n="button.connect">Connect Device</button>
+      <button id="button-btn-disconnect" class="secondary" disabled data-i18n="button.disconnect">Disconnect</button>
+      <span id="button-status" class="status status-disconnected" data-i18n="status.disconnected">Not connected</span>
+    </div>
+    <div class="row muted" id="button-fw-version-row" style="display:none;">
+      <span data-i18n="label.fwVersion">Firmware Version</span>: <span id="button-fw-version"></span>
+    </div>
+    <div class="row muted" id="button-model-number-row" style="display:none;">
+      <span data-i18n="label.modelNumber">Model</span>: <span id="button-model-number"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.aesKey">BTHome AES Key (16 bytes / 32 hex characters)</h2>
+    <div class="row flex">
+      <button id="button-btn-read-key" disabled data-i18n="button.readKey">Read Current Key</button>
+      <span id="button-current-key" class="hex">--</span>
+    </div>
+    <div class="row flex">
+      <label data-i18n="label.newKey">New Key</label>
+      <input type="text" id="button-new-key" placeholder="32 hex characters, e.g. 00112233445566778899AABBCCDDEEFF" data-i18n-placeholder="placeholder.newKey" maxlength="32" style="flex:1;">
+      <button id="button-btn-random-key" class="secondary" data-i18n="button.randomKey">Random Key</button>
+    </div>
+    <div class="row">
+      <button id="button-btn-write-key" disabled data-i18n="button.writeKey">Apply and Save</button>
+      <span id="button-key-feedback"></span>
+    </div>
+    <p class="warn" data-i18n="key.homeAssistantHint">This key is used for Home Assistant connection authentication.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.advInterval">Advertising Interval</h2>
+    <div class="row flex">
+      <label data-i18n="label.interval">Interval</label>
+      <input type="number" id="button-report-interval" min="5" max="3600" step="1" value="" placeholder="5-3600" style="width:100px;">
+      <span data-i18n="label.seconds">sec</span>
+      <button id="button-btn-read-interval" disabled data-i18n="button.readInterval">Read</button>
+      <button id="button-btn-write-interval" disabled data-i18n="button.writeInterval">Apply and Save</button>
+      <span id="button-interval-feedback"></span>
+    </div>
+    <p class="warn" data-i18n="advInterval.hint">The device broadcasts sensor data once per this interval (5-3600 seconds). Default 60 s.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.ota">Firmware Upgrade (OTA)</h2>
+    <div class="row flex">
+      <label data-i18n="label.firmware">Firmware</label>
+      <input type="file" id="button-ota-file" accept=".bin,.hex" style="flex:1;">
+    </div>
+    <div class="row muted" id="button-ota-file-info"></div>
+    <div class="row flex">
+      <button id="button-btn-ota-info" disabled data-i18n="button.otaInfo">Query Device</button>
+      <button id="button-btn-ota-start" disabled data-i18n="button.otaStart">Start Upgrade</button>
+      <span id="button-ota-feedback"></span>
+    </div>
+    <div class="row">
+      <progress id="button-ota-progress" value="0" max="100" style="width:100%; height:20px; display:none;"></progress>
+    </div>
+    <div class="row muted" id="button-ota-status"></div>
+    <p class="warn" data-i18n="ota.hint">Select a .bin firmware file then click "Start Upgrade". Do not disconnect or close the page during the upgrade. The device will reboot automatically after completion.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.responseLog">Response Log</h2>
+    <pre id="button-log" class="log"></pre>
+    <div class="row">
+      <button id="button-btn-clear-log" class="secondary" data-i18n="button.clearLog">Clear Log</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.maintenance">Maintenance</h2>
+    <button id="button-btn-factory" class="danger" disabled data-i18n="button.factoryKey">Restore Key</button>
+    <button id="button-btn-reboot" class="danger" disabled data-i18n="button.reboot">Reboot Device</button>
+  </div>
+</main>
+
 <script>
 const SERVICE_UUID     = '6b746868-0000-4254-486f-6d650000fcd2';
 const CHAR_KEY         = '6b746868-0001-4254-486f-6d650000fcd2';
@@ -280,9 +364,15 @@ const CHAR_RADAR_RESP  = '6b746868-0003-4254-486f-6d650000fcd2';
 const CHAR_CTRL        = '6b746868-0004-4254-486f-6d650000fcd2';
 const CHAR_INTERVAL    = '6b746868-0005-4254-486f-6d650000fcd2';
 const CHAR_DEBOUNCE    = '6b746868-0002-4254-486f-6d650000fcd2';
+const CHAR_BUTTON_INTERVAL = '6b746868-0002-4254-486f-6d650000fcd2';
 const OTA_SERVICE_UUID = 0xFEE0;
 const OTA_CHAR_UUID    = 0xFEE1;
 const LANG_STORAGE_KEY = 'bthome-config-lang';
+
+const INTERVAL_RANGES = {
+  presence: { min: 10, max: 600 },
+  button: { min: 5, max: 3600 }
+};
 
 const I18N = {
   en: {
@@ -290,11 +380,13 @@ const I18N = {
     'language.label': 'Language',
     'view.label': 'Device',
     'view.presence': 'Presence Sensor(PSBT03)',
-    'view.door': 'Door Sensor(SS01-DTH)',
+    'view.door': 'Door/Window Sensor(SS01-DTH)',
+    'view.button': 'Wireless Button(WS01)',
     'switch.otaRunning': 'OTA is running. Finish the upgrade before switching devices.',
     'section.connection': 'Connection',
     'connection.browserReq': 'Browser requirement: Chrome / Edge (desktop) or Android Chrome. iOS Safari does not support Web Bluetooth.',
     'connection.configModeHint': 'Before use, hold the device button for 3 seconds to enter configuration mode (LED blinks at 1 Hz).',
+    'connection.configModeHintButton': 'Before use, hold the device button for 8 seconds to enter configuration mode (LED blinks at 1 Hz).',
     'button.connect': 'Connect Device',
     'button.disconnect': 'Disconnect',
     'status.disconnected': 'Not connected',
@@ -330,7 +422,9 @@ const I18N = {
     'button.readInterval': 'Read',
     'button.writeInterval': 'Apply and Save',
     'interval.hint': 'Set the periodic report interval (10-600 seconds). Persists after power off.',
-    'error.invalidInterval': 'Interval must be between 10 and 600 seconds',
+    'section.advInterval': 'Advertising Interval',
+    'advInterval.hint': 'The device broadcasts sensor data once per this interval (5-3600 seconds). Default 60 s.',
+    'error.invalidInterval': 'Interval must be between {min} and {max} seconds',
     'feedback.intervalWritten': 'Applied and saved',
     'log.readInterval': 'Read interval: {value} sec',
     'log.readIntervalFailed': 'Read interval failed: {message}',
@@ -394,6 +488,7 @@ const I18N = {
     'button.radarReset': 'Reset Radar',
     'confirm.factoryResetPresence': 'Factory reset? This will clear the custom key.',
     'confirm.factoryResetDoor': 'Factory reset? This will clear the custom key and debounce settings.',
+    'confirm.factoryResetButton': 'Factory reset? This will clear the custom key and advertising interval settings.',
     'confirm.reboot': 'Reboot device?',
     'log.ctrlSent': 'CTRL 0x{op} sent',
     'log.ctrlFailed': 'CTRL failed: {message}'
@@ -403,11 +498,13 @@ const I18N = {
     'language.label': '语言',
     'view.label': '设备',
     'view.presence': '人体存在传感器(PSBT03)',
-    'view.door': '门磁传感器(SS01-DTH)',
+    'view.door': '门窗传感器(SS01-DTH)',
+    'view.button': '无线按钮(WS01)',
     'switch.otaRunning': 'OTA 正在运行，请完成升级后再切换设备。',
     'section.connection': '连接',
     'connection.browserReq': '浏览器要求：Chrome / Edge (桌面) 或 Android Chrome。iOS Safari 不支持 Web Bluetooth。',
     'connection.configModeHint': '使用前需在设备上长按按钮 3 秒进入配置模式（LED 1Hz 闪烁）。',
+    'connection.configModeHintButton': '使用前需在设备上长按按钮 8 秒进入配置模式（LED 1Hz 闪烁）。',
     'button.connect': '连接设备',
     'button.disconnect': '断开',
     'status.disconnected': '未连接',
@@ -443,7 +540,9 @@ const I18N = {
     'button.readInterval': '读取',
     'button.writeInterval': '应用并保存',
     'interval.hint': '设置周期上报间隔（10-600 秒），断电后保持。',
-    'error.invalidInterval': '间隔必须在 10-600 秒之间',
+    'section.advInterval': '周期广播间隔',
+    'advInterval.hint': '设备每隔此时间主动广播一次传感器数据（5-3600 秒）。默认 60 秒。',
+    'error.invalidInterval': '间隔必须在 {min}-{max} 秒之间',
     'feedback.intervalWritten': '已应用并保存',
     'log.readInterval': '读取间隔: {value} 秒',
     'log.readIntervalFailed': '读取间隔失败: {message}',
@@ -507,6 +606,7 @@ const I18N = {
     'button.radarReset': '重置雷达',
     'confirm.factoryResetPresence': '确认出厂复位？将清除自定义密钥。',
     'confirm.factoryResetDoor': '确认恢复密钥？将清除自定义密钥和防抖设置。',
+    'confirm.factoryResetButton': '确认恢复密钥？将清除自定义密钥和广播间隔设置。',
     'confirm.reboot': '确认重启设备？',
     'log.ctrlSent': 'CTRL 0x{op} 已发送',
     'log.ctrlFailed': 'CTRL 失败: {message}'
@@ -679,6 +779,9 @@ class DeviceController {
         .forEach(id => this.setControlDisabled(id, !connected));
       this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
       this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
+    } else if (this.type === 'button') {
+      this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
+      this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
     } else {
       this.setControlDisabled('btn-read-debounce', !connected);
       this.setControlDisabled('btn-write-debounce', !connected);
@@ -737,6 +840,12 @@ class DeviceController {
         }
         await this.chars.radarResp.startNotifications();
         this.chars.radarResp.addEventListener('characteristicvaluechanged', this.onRadarResp);
+      } else if (this.type === 'button') {
+        try {
+          this.chars.interval = await service.getCharacteristic(CHAR_BUTTON_INTERVAL);
+        } catch (e) {
+          this.chars.interval = null;
+        }
       } else {
         this.chars.debounce = await service.getCharacteristic(CHAR_DEBOUNCE);
       }
@@ -829,9 +938,10 @@ class DeviceController {
     if (!this.chars.interval) return;
     this.clearFeedback('interval-feedback');
     try {
+      const range = INTERVAL_RANGES[this.type] || { min: 10, max: 600 };
       const value = parseInt(this.el('report-interval').value, 10);
-      if (isNaN(value) || value < 10 || value > 600) {
-        throw makeI18nError('error.invalidInterval');
+      if (isNaN(value) || value < range.min || value > range.max) {
+        throw makeI18nError('error.invalidInterval', { min: range.min, max: range.max });
       }
       const buf = new Uint8Array(2);
       buf[0] = value & 0xFF;
@@ -1213,7 +1323,12 @@ class DeviceController {
     this.el('btn-random-key').addEventListener('click', () => this.generateRandomKey());
     this.el('btn-clear-log').addEventListener('click', () => { this.el('log').textContent = ''; });
     this.el('btn-factory').addEventListener('click', () => {
-      const confirmKey = this.type === 'door' ? 'confirm.factoryResetDoor' : 'confirm.factoryResetPresence';
+      const confirmKeys = {
+        door: 'confirm.factoryResetDoor',
+        button: 'confirm.factoryResetButton',
+        presence: 'confirm.factoryResetPresence'
+      };
+      const confirmKey = confirmKeys[this.type] || 'confirm.factoryResetPresence';
       if (confirm(t(confirmKey))) this.ctrlOp(0x02);
     });
     this.el('btn-reboot').addEventListener('click', () => {
@@ -1231,6 +1346,9 @@ class DeviceController {
       this.el('btn-radar-init').addEventListener('click', () => this.radarEnterConfig());
       this.el('btn-send-at').addEventListener('click', () => this.sendRawAt());
       this.el('btn-radar-reset').addEventListener('click', () => this.resetRadar());
+    } else if (this.type === 'button') {
+      this.el('btn-read-interval').addEventListener('click', () => this.readInterval());
+      this.el('btn-write-interval').addEventListener('click', () => this.writeInterval());
     } else {
       this.el('btn-read-debounce').addEventListener('click', () => this.readDebounce());
       this.el('btn-write-debounce').addEventListener('click', () => this.writeDebounce());
@@ -1240,7 +1358,8 @@ class DeviceController {
 
 const controllers = {
   presence: new DeviceController('presence'),
-  door: new DeviceController('door')
+  door: new DeviceController('door'),
+  button: new DeviceController('button')
 };
 
 function applyLanguage() {
@@ -1278,6 +1397,7 @@ function showView(type) {
   activeView = type;
   $('presence-view').hidden = type !== 'presence';
   $('door-view').hidden = type !== 'door';
+  $('button-view').hidden = type !== 'button';
   $('device-select').value = type;
   const target = controllers[type];
   if (!target.isConnected() && !target.device) {
