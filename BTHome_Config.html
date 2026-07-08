@@ -48,6 +48,9 @@
   .err { color: var(--err); font-size: 0.85em; margin: 8px 0; }
   .ok { color: var(--accent); font-size: 0.85em; }
   .muted { color: var(--muted); font-size: 0.85em; }
+  .fw-update { background: #3a2e1a; border: 1px solid var(--warn); color: var(--warn);
+               padding: 8px 10px; border-radius: 6px; font-size: 0.85em; }
+  .fw-update a { color: var(--warn); font-weight: 600; margin-left: 8px; }
 </style>
 </head>
 <body>
@@ -89,6 +92,9 @@
     <div class="row muted" id="presence-model-number-row" style="display:none;">
       <span data-i18n="label.modelNumber">Model</span>: <span id="presence-model-number"></span>
     </div>
+    <div class="row" id="presence-fw-update-row" style="display:none;">
+      <span class="fw-update"><span id="presence-fw-update-text"></span><a id="presence-fw-update-link" target="_blank" rel="noopener"></a></span>
+    </div>
   </div>
 
   <div class="card">
@@ -120,6 +126,22 @@
       <span id="presence-interval-feedback"></span>
     </div>
     <p class="warn" data-i18n="interval.hint">Set the periodic report interval (10-600 seconds). Persists after power off.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="section.detectMode">Detection Mode</h2>
+    <div class="row flex">
+      <label data-i18n="label.detectMode">Mode</label>
+      <select id="presence-detect-mode" style="min-width:180px;">
+        <option value="0" data-i18n="mode.combined">Combined (PIR + Radar)</option>
+        <option value="1" data-i18n="mode.pirOnly">PIR Only</option>
+        <option value="2" data-i18n="mode.radarOnly">Radar Only</option>
+      </select>
+      <button id="presence-btn-read-mode" disabled data-i18n="button.readMode">Read</button>
+      <button id="presence-btn-write-mode" disabled data-i18n="button.writeMode">Apply and Save</button>
+      <span id="presence-mode-feedback"></span>
+    </div>
+    <p class="warn" data-i18n="mode.hint">Combined: PIR high = present, both PIR &amp; radar low = absent. PIR only / Radar only use that single sensor. Persists after power off.</p>
   </div>
 
   <div class="card">
@@ -201,6 +223,9 @@
     </div>
     <div class="row muted" id="door-model-number-row" style="display:none;">
       <span data-i18n="label.modelNumber">Model</span>: <span id="door-model-number"></span>
+    </div>
+    <div class="row" id="door-fw-update-row" style="display:none;">
+      <span class="fw-update"><span id="door-fw-update-text"></span><a id="door-fw-update-link" target="_blank" rel="noopener"></a></span>
     </div>
   </div>
 
@@ -289,6 +314,9 @@
     <div class="row muted" id="button-model-number-row" style="display:none;">
       <span data-i18n="label.modelNumber">Model</span>: <span id="button-model-number"></span>
     </div>
+    <div class="row" id="button-fw-update-row" style="display:none;">
+      <span class="fw-update"><span id="button-fw-update-text"></span><a id="button-fw-update-link" target="_blank" rel="noopener"></a></span>
+    </div>
   </div>
 
   <div class="card">
@@ -363,11 +391,13 @@ const CHAR_RADAR_CMD   = '6b746868-0002-4254-486f-6d650000fcd2';
 const CHAR_RADAR_RESP  = '6b746868-0003-4254-486f-6d650000fcd2';
 const CHAR_CTRL        = '6b746868-0004-4254-486f-6d650000fcd2';
 const CHAR_INTERVAL    = '6b746868-0005-4254-486f-6d650000fcd2';
+const CHAR_MODE        = '6b746868-0006-4254-486f-6d650000fcd2';
 const CHAR_DEBOUNCE    = '6b746868-0002-4254-486f-6d650000fcd2';
 const CHAR_BUTTON_INTERVAL = '6b746868-0002-4254-486f-6d650000fcd2';
 const OTA_SERVICE_UUID = 0xFEE0;
 const OTA_CHAR_UUID    = 0xFEE1;
 const LANG_STORAGE_KEY = 'bthome-config-lang';
+const GITHUB_RELEASES_API = 'https://api.github.com/repos/athom-tech/bthome-sensor/releases?per_page=100';
 
 const INTERVAL_RANGES = {
   presence: { min: 10, max: 600 },
@@ -392,6 +422,8 @@ const I18N = {
     'status.disconnected': 'Not connected',
     'label.fwVersion': 'Firmware Version',
     'label.modelNumber': 'Model',
+    'fw.updateAvailable': 'New firmware {latest} available (current {current}). Upgrade via OTA below.',
+    'fw.viewRelease': 'View release',
     'status.scanning': 'Scanning...',
     'status.connecting': 'Connecting...',
     'status.connected': 'Connected: {name}',
@@ -430,6 +462,20 @@ const I18N = {
     'log.readIntervalFailed': 'Read interval failed: {message}',
     'log.writeInterval': 'Wrote interval: {value} sec',
     'log.writeIntervalFailed': 'Write interval failed: {message}',
+    'section.detectMode': 'Detection Mode',
+    'label.detectMode': 'Mode',
+    'mode.combined': 'Combined (PIR + Radar)',
+    'mode.pirOnly': 'PIR Only',
+    'mode.radarOnly': 'Radar Only',
+    'button.readMode': 'Read',
+    'button.writeMode': 'Apply and Save',
+    'mode.hint': 'Combined: PIR high = present, both PIR & radar low = absent. PIR only / Radar only use that single sensor. Persists after power off.',
+    'error.invalidMode': 'Please select a valid detection mode',
+    'feedback.modeWritten': 'Applied and saved',
+    'log.readMode': 'Read mode: {value}',
+    'log.readModeFailed': 'Read mode failed: {message}',
+    'log.writeMode': 'Wrote mode: {value}',
+    'log.writeModeFailed': 'Write mode failed: {message}',
     'section.radarParams': 'Radar Parameters (Common Settings)',
     'button.readParams': 'Read Current Parameters',
     'button.applyParams': 'Set Current Parameters',
@@ -510,6 +556,8 @@ const I18N = {
     'status.disconnected': '未连接',
     'label.fwVersion': '固件版本',
     'label.modelNumber': '型号',
+    'fw.updateAvailable': '发现新固件版本 {latest}（当前 {current}），建议在下方 OTA 升级。',
+    'fw.viewRelease': '查看发布',
     'status.scanning': '扫描中...',
     'status.connecting': '连接中...',
     'status.connected': '已连接: {name}',
@@ -548,6 +596,20 @@ const I18N = {
     'log.readIntervalFailed': '读取间隔失败: {message}',
     'log.writeInterval': '写入间隔: {value} 秒',
     'log.writeIntervalFailed': '写入间隔失败: {message}',
+    'section.detectMode': '检测模式',
+    'label.detectMode': '模式',
+    'mode.combined': '组合（PIR + 雷达）',
+    'mode.pirOnly': '仅 PIR',
+    'mode.radarOnly': '仅雷达',
+    'button.readMode': '读取',
+    'button.writeMode': '应用并保存',
+    'mode.hint': '组合：PIR 高=有人，PIR 与雷达都低=无人。仅 PIR / 仅雷达只用对应单个传感器。断电后保持。',
+    'error.invalidMode': '请选择有效的检测模式',
+    'feedback.modeWritten': '已应用并保存',
+    'log.readMode': '读取模式: {value}',
+    'log.readModeFailed': '读取模式失败: {message}',
+    'log.writeMode': '写入模式: {value}',
+    'log.writeModeFailed': '写入模式失败: {message}',
     'section.radarParams': '雷达参数（常用配置）',
     'button.readParams': '读取当前参数',
     'button.applyParams': '设置当前参数',
@@ -679,6 +741,45 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/* Firmware update detection: compare the device version against GitHub Releases. */
+function parseSemver(str) {
+  const m = String(str || '').match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!m) return null;
+  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3] || '0', 10)];
+}
+
+function compareSemver(a, b) {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
+  }
+  return 0;
+}
+
+async function fetchLatestRelease(model) {
+  try {
+    const resp = await fetch(GITHUB_RELEASES_API, { headers: { 'Accept': 'application/vnd.github+json' } });
+    if (!resp.ok) return null;
+    const releases = await resp.json();
+    if (!Array.isArray(releases)) return null;
+    const needle = String(model || '').toLowerCase();
+    let best = null;
+    for (const rel of releases) {
+      if (rel.draft || rel.prerelease) continue;
+      const label = ((rel.tag_name || '') + ' ' + (rel.name || '')).toLowerCase();
+      if (needle && label.indexOf(needle) === -1) continue;
+      const ver = parseSemver(rel.tag_name || rel.name);
+      if (!ver) continue;
+      if (!best || compareSemver(ver, best.ver) > 0) {
+        best = { ver, url: rel.html_url || '' };
+      }
+    }
+    if (!best) return null;
+    return { version: best.ver.join('.'), url: best.url };
+  } catch (e) {
+    return null;
+  }
+}
+
 class DeviceController {
   constructor(type) {
     this.type = type;
@@ -692,6 +793,7 @@ class DeviceController {
     this.feedbackStates = {};
     this.otaFileData = null;
     this.otaRunning = false;
+    this.fwUpdateState = null;
     this.onDisconnected = this.onDisconnected.bind(this);
     this.onRadarResp = this.onRadarResp.bind(this);
   }
@@ -779,6 +881,8 @@ class DeviceController {
         .forEach(id => this.setControlDisabled(id, !connected));
       this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
       this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
+      this.setControlDisabled('btn-read-mode', !(connected && this.chars.mode));
+      this.setControlDisabled('btn-write-mode', !(connected && this.chars.mode));
     } else if (this.type === 'button') {
       this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
       this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
@@ -793,6 +897,46 @@ class DeviceController {
     this.el('fw-version-row').style.display = 'none';
     this.el('model-number').textContent = '';
     this.el('model-number-row').style.display = 'none';
+    this.fwUpdateState = null;
+    this.renderFwUpdate();
+  }
+
+  renderFwUpdate() {
+    const row = this.el('fw-update-row');
+    if (!row) return;
+    if (!this.fwUpdateState) {
+      row.style.display = 'none';
+      return;
+    }
+    this.el('fw-update-text').textContent = t('fw.updateAvailable', {
+      latest: this.fwUpdateState.latest,
+      current: this.fwUpdateState.current
+    });
+    const link = this.el('fw-update-link');
+    if (this.fwUpdateState.url) {
+      link.textContent = t('fw.viewRelease');
+      link.href = this.fwUpdateState.url;
+      link.style.display = '';
+    } else {
+      link.textContent = '';
+      link.removeAttribute('href');
+      link.style.display = 'none';
+    }
+    row.style.display = 'block';
+  }
+
+  async checkFirmwareUpdate(currentStr, model) {
+    const current = parseSemver(currentStr);
+    if (!current) return;
+    const latest = await fetchLatestRelease(model);
+    if (!latest) return;
+    const latestVer = parseSemver(latest.version);
+    if (latestVer && compareSemver(latestVer, current) > 0) {
+      this.fwUpdateState = { latest: latest.version, current: current.join('.'), url: latest.url };
+    } else {
+      this.fwUpdateState = null;
+    }
+    this.renderFwUpdate();
   }
 
   async readDeviceInfo() {
@@ -800,17 +944,22 @@ class DeviceController {
       const disService = await this.server.getPrimaryService(0x180a);
       const fwChar = await disService.getCharacteristic(0x2a26);
       const fwVal = await fwChar.readValue();
-      this.el('fw-version').textContent = new TextDecoder().decode(fwVal);
+      const fwStr = new TextDecoder().decode(fwVal);
+      this.el('fw-version').textContent = fwStr;
       this.el('fw-version-row').style.display = 'block';
+      let modelStr = '';
       try {
         const modelChar = await disService.getCharacteristic(0x2a24);
         const modelVal = await modelChar.readValue();
-        this.el('model-number').textContent = new TextDecoder().decode(modelVal);
+        modelStr = new TextDecoder().decode(modelVal);
+        this.el('model-number').textContent = modelStr;
         this.el('model-number-row').style.display = 'block';
       } catch (e) {
         this.el('model-number').textContent = '';
         this.el('model-number-row').style.display = 'none';
       }
+      /* Non-blocking firmware update check; failures stay silent. */
+      this.checkFirmwareUpdate(fwStr, modelStr);
     } catch (e) {
       this.clearDeviceInfo();
     }
@@ -837,6 +986,11 @@ class DeviceController {
           this.chars.interval = await service.getCharacteristic(CHAR_INTERVAL);
         } catch (e) {
           this.chars.interval = null;
+        }
+        try {
+          this.chars.mode = await service.getCharacteristic(CHAR_MODE);
+        } catch (e) {
+          this.chars.mode = null;
         }
         await this.chars.radarResp.startNotifications();
         this.chars.radarResp.addEventListener('characteristicvaluechanged', this.onRadarResp);
@@ -952,6 +1106,37 @@ class DeviceController {
     } catch (e) {
       this.setFeedbackError('interval-feedback', e);
       this.log(t('log.writeIntervalFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async readMode() {
+    if (!this.chars.mode) return;
+    try {
+      const v = await this.chars.mode.readValue();
+      const value = v.getUint8(0);
+      if (value >= 0 && value <= 2) {
+        this.el('detect-mode').value = String(value);
+      }
+      this.log(t('log.readMode', { value }));
+    } catch (e) {
+      this.log(t('log.readModeFailed', { message: getErrorText(e) }));
+    }
+  }
+
+  async writeMode() {
+    if (!this.chars.mode) return;
+    this.clearFeedback('mode-feedback');
+    try {
+      const value = parseInt(this.el('detect-mode').value, 10);
+      if (isNaN(value) || value < 0 || value > 2) {
+        throw makeI18nError('error.invalidMode');
+      }
+      await this.chars.mode.writeValue(new Uint8Array([value & 0xFF]));
+      this.setFeedback('mode-feedback', 'feedback.modeWritten', 'ok');
+      this.log(t('log.writeMode', { value }));
+    } catch (e) {
+      this.setFeedbackError('mode-feedback', e);
+      this.log(t('log.writeModeFailed', { message: getErrorText(e) }));
     }
   }
 
@@ -1341,6 +1526,8 @@ class DeviceController {
     if (this.type === 'presence') {
       this.el('btn-read-interval').addEventListener('click', () => this.readInterval());
       this.el('btn-write-interval').addEventListener('click', () => this.writeInterval());
+      this.el('btn-read-mode').addEventListener('click', () => this.readMode());
+      this.el('btn-write-mode').addEventListener('click', () => this.writeMode());
       this.el('btn-read-params').addEventListener('click', () => this.readParams());
       this.el('btn-apply-params').addEventListener('click', () => this.applyParams());
       this.el('btn-radar-init').addEventListener('click', () => this.radarEnterConfig());
@@ -1380,6 +1567,7 @@ function applyLanguage() {
   Object.values(controllers).forEach(controller => {
     controller.renderStatus();
     controller.renderAllFeedback();
+    controller.renderFwUpdate();
   });
 }
 
