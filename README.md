@@ -17,6 +17,7 @@ A Web Bluetooth configuration tool for connecting to and configuring supported B
 - Configure presence sensor radar parameters: `ONTH`, `HOLD`, `R1TH`, `R2TH`, and `R3TH`
 - Send raw radar AT commands to the presence sensor
 - Configure door sensor debounce time, from `10` to `5000` ms
+- Configure the door sensor report interval, from `30` to `3600` seconds
 - Configure the button advertising interval, from `5` to `3600` seconds
 - Upgrade firmware over OTA
 - Restore key, reboot device, and reset radar parameters
@@ -55,6 +56,8 @@ When reading or applying common radar parameters, the tool automatically handles
 ### Door Sensor
 
 The door sensor supports debounce time configuration from `10` to `5000` ms. The default value is `100` ms. After a state change, the device waits for this duration before reporting the stable state.
+
+It also supports a report interval from `30` to `3600` seconds, default `60` s. The device periodically reports temperature, humidity, battery level and door state at this interval, and the setting persists after power loss.
 
 ### Button
 

@@ -265,6 +265,20 @@
   </div>
 
   <div class="card">
+    <h2 data-i18n="section.doorInterval">Report Interval</h2>
+    <div class="row flex">
+      <label data-i18n="label.interval">Interval</label>
+      <input type="number" id="door-report-interval" min="30" max="3600" step="1" value="" placeholder="30-3600" style="width:100px;">
+      <span data-i18n="label.seconds">sec</span>
+      <button id="door-btn-read-interval" disabled data-i18n="button.readInterval">Read</button>
+      <button id="door-btn-write-interval" disabled data-i18n="button.writeInterval">Apply and Save</button>
+      <span id="door-interval-feedback"></span>
+    </div>
+    <p class="warn" data-i18n="doorInterval.hint">How often temperature, humidity, battery and door state are reported (30-3600 seconds). Default 60 s. Persists after power off.</p>
+    <p class="warn" id="door-interval-unsupported" style="display:none;" data-i18n="door.reportUnsupported">This firmware does not support the report interval setting; please upgrade the firmware first.</p>
+  </div>
+
+  <div class="card">
     <h2 data-i18n="section.ota">Firmware Upgrade (OTA)</h2>
     <div class="row flex">
       <label data-i18n="label.firmware">Firmware</label>
@@ -394,6 +408,7 @@ const CHAR_INTERVAL    = '6b746868-0005-4254-486f-6d650000fcd2';
 const CHAR_MODE        = '6b746868-0006-4254-486f-6d650000fcd2';
 const CHAR_DEBOUNCE    = '6b746868-0002-4254-486f-6d650000fcd2';
 const CHAR_BUTTON_INTERVAL = '6b746868-0002-4254-486f-6d650000fcd2';
+const CHAR_DOOR_REPORT = '6b746868-0003-4254-486f-6d650000fcd2';
 const OTA_SERVICE_UUID = 0xFEE0;
 const OTA_CHAR_UUID    = 0xFEE1;
 const LANG_STORAGE_KEY = 'bthome-config-lang';
@@ -401,6 +416,7 @@ const GITHUB_RELEASES_API = 'https://api.github.com/repos/athom-tech/bthome-sens
 
 const INTERVAL_RANGES = {
   presence: { min: 10, max: 600 },
+  door: { min: 30, max: 3600 },
   button: { min: 5, max: 3600 }
 };
 
@@ -505,6 +521,9 @@ const I18N = {
     'log.readDebounceFailed': 'Read debounce failed: {message}',
     'log.writeDebounce': 'Wrote debounce: {value} ms',
     'log.writeDebounceFailed': 'Write debounce failed: {message}',
+    'section.doorInterval': 'Report Interval',
+    'doorInterval.hint': 'How often temperature, humidity, battery and door state are reported (30-3600 seconds). Default 60 s. Persists after power off.',
+    'door.reportUnsupported': 'This firmware does not support the report interval setting; please upgrade the firmware first.',
     'section.ota': 'Firmware Upgrade (OTA)',
     'label.firmware': 'Firmware',
     'button.otaInfo': 'Query Device',
@@ -533,7 +552,7 @@ const I18N = {
     'button.reboot': 'Reboot Device',
     'button.radarReset': 'Reset Radar',
     'confirm.factoryResetPresence': 'Factory reset? This will clear the custom key.',
-    'confirm.factoryResetDoor': 'Factory reset? This will clear the custom key and debounce settings.',
+    'confirm.factoryResetDoor': 'Factory reset? This will clear the custom key, debounce and report interval settings.',
     'confirm.factoryResetButton': 'Factory reset? This will clear the custom key and advertising interval settings.',
     'confirm.reboot': 'Reboot device?',
     'log.ctrlSent': 'CTRL 0x{op} sent',
@@ -639,6 +658,9 @@ const I18N = {
     'log.readDebounceFailed': '读取防抖时间失败: {message}',
     'log.writeDebounce': '写入防抖时间: {value} ms',
     'log.writeDebounceFailed': '写入防抖时间失败: {message}',
+    'section.doorInterval': '上报间隔',
+    'doorInterval.hint': '周期上报温湿度、电量和门磁状态的间隔（30-3600 秒）。默认 60 秒，断电后保持。',
+    'door.reportUnsupported': '当前固件不支持上报间隔设置，请先升级固件。',
     'section.ota': '固件升级 (OTA)',
     'label.firmware': '固件文件',
     'button.otaInfo': '查询设备',
@@ -667,7 +689,7 @@ const I18N = {
     'button.reboot': '重启设备',
     'button.radarReset': '重置雷达',
     'confirm.factoryResetPresence': '确认出厂复位？将清除自定义密钥。',
-    'confirm.factoryResetDoor': '确认恢复密钥？将清除自定义密钥和防抖设置。',
+    'confirm.factoryResetDoor': '确认恢复密钥？将清除自定义密钥、防抖设置和上报间隔。',
     'confirm.factoryResetButton': '确认恢复密钥？将清除自定义密钥和广播间隔设置。',
     'confirm.reboot': '确认重启设备？',
     'log.ctrlSent': 'CTRL 0x{op} 已发送',
@@ -794,6 +816,7 @@ class DeviceController {
     this.otaFileData = null;
     this.otaRunning = false;
     this.fwUpdateState = null;
+    this.reportUnsupported = false;
     this.onDisconnected = this.onDisconnected.bind(this);
     this.onRadarResp = this.onRadarResp.bind(this);
   }
@@ -889,7 +912,14 @@ class DeviceController {
     } else {
       this.setControlDisabled('btn-read-debounce', !connected);
       this.setControlDisabled('btn-write-debounce', !connected);
+      this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
+      this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
     }
+  }
+
+  renderReportUnsupported() {
+    const el = this.el('interval-unsupported');
+    if (el) el.style.display = this.reportUnsupported ? 'block' : 'none';
   }
 
   clearDeviceInfo() {
@@ -897,6 +927,8 @@ class DeviceController {
     this.el('fw-version-row').style.display = 'none';
     this.el('model-number').textContent = '';
     this.el('model-number-row').style.display = 'none';
+    this.reportUnsupported = false;
+    this.renderReportUnsupported();
     this.fwUpdateState = null;
     this.renderFwUpdate();
   }
@@ -1002,6 +1034,14 @@ class DeviceController {
         }
       } else {
         this.chars.debounce = await service.getCharacteristic(CHAR_DEBOUNCE);
+        try {
+          this.chars.interval = await service.getCharacteristic(CHAR_DOOR_REPORT);
+          this.reportUnsupported = false;
+        } catch (e) {
+          this.chars.interval = null;
+          this.reportUnsupported = true;
+        }
+        this.renderReportUnsupported();
       }
 
       try {
@@ -1539,6 +1579,8 @@ class DeviceController {
     } else {
       this.el('btn-read-debounce').addEventListener('click', () => this.readDebounce());
       this.el('btn-write-debounce').addEventListener('click', () => this.writeDebounce());
+      this.el('btn-read-interval').addEventListener('click', () => this.readInterval());
+      this.el('btn-write-interval').addEventListener('click', () => this.writeInterval());
     }
   }
 }
