@@ -176,7 +176,7 @@
     <h2 data-i18n="section.ota">Firmware Upgrade (OTA)</h2>
     <div class="row flex">
       <label data-i18n="label.firmware">Firmware</label>
-      <input type="file" id="presence-ota-file" accept=".bin,.hex" style="flex:1;">
+      <input type="file" id="presence-ota-file" accept=".bin" style="flex:1;">
     </div>
     <div class="row muted" id="presence-ota-file-info"></div>
     <div class="row flex">
@@ -282,7 +282,7 @@
     <h2 data-i18n="section.ota">Firmware Upgrade (OTA)</h2>
     <div class="row flex">
       <label data-i18n="label.firmware">Firmware</label>
-      <input type="file" id="door-ota-file" accept=".bin,.hex" style="flex:1;">
+      <input type="file" id="door-ota-file" accept=".bin" style="flex:1;">
     </div>
     <div class="row muted" id="door-ota-file-info"></div>
     <div class="row flex">
@@ -368,7 +368,7 @@
     <h2 data-i18n="section.ota">Firmware Upgrade (OTA)</h2>
     <div class="row flex">
       <label data-i18n="label.firmware">Firmware</label>
-      <input type="file" id="button-ota-file" accept=".bin,.hex" style="flex:1;">
+      <input type="file" id="button-ota-file" accept=".bin" style="flex:1;">
     </div>
     <div class="row muted" id="button-ota-file-info"></div>
     <div class="row flex">
@@ -411,6 +411,8 @@ const CHAR_BUTTON_INTERVAL = '6b746868-0002-4254-486f-6d650000fcd2';
 const CHAR_DOOR_REPORT = '6b746868-0003-4254-486f-6d650000fcd2';
 const OTA_SERVICE_UUID = 0xFEE0;
 const OTA_CHAR_UUID    = 0xFEE1;
+const OTA_CMD_PROM = 0x80, OTA_CMD_ERASE = 0x81, OTA_CMD_VERIFY = 0x82, OTA_CMD_END = 0x83, OTA_CMD_INFO = 0x84;
+const OTA_CHUNK_SIZE = 240, OTA_ADDR_BASE = 0x1000 / 16, IMAGE_MAX = 216 * 1024;
 const LANG_STORAGE_KEY = 'bthome-config-lang';
 const GITHUB_RELEASES_API = 'https://api.github.com/repos/athom-tech/bthome-sensor/releases?per_page=100';
 
@@ -534,6 +536,7 @@ const I18N = {
     'ota.querying': 'Querying device info...',
     'ota.deviceInfo': 'Device ImageSize={size}KB',
     'ota.erasing': 'Erasing {blocks} blocks...',
+    'ota.eraseProgress': 'Erasing {current}/{total} blocks...',
     'ota.eraseFailed': 'Erase failed: {status}',
     'ota.eraseComplete': 'Erase complete',
     'ota.programming': 'Programming... {current}/{total} bytes ({pct}%)',
@@ -544,6 +547,13 @@ const I18N = {
     'ota.success': 'OTA upgrade successful! Device is rebooting.',
     'ota.failed': 'OTA failed: {message}',
     'ota.fileTooLarge': 'Firmware file too large ({size} bytes, max {max} bytes)',
+    'ota.invalidFile': 'Select a non-empty .bin firmware file',
+    'ota.fileReadFailed': 'Could not read firmware file: {message}',
+    'ota.invalidInfo': 'Device returned invalid OTA information',
+    'ota.responseTimeout': 'OTA response timed out (command 0x{command})',
+    'ota.invalidResponse': 'Invalid OTA response length (command 0x{command}, received {length} bytes)',
+    'ota.disconnected': 'Bluetooth disconnected during OTA',
+    'ota.configBlocked': 'Configuration stopped because OTA is running',
     'confirm.ota': 'Start OTA upgrade? Do not disconnect during the process.',
     'section.responseLog': 'Response Log',
     'button.clearLog': 'Clear Log',
@@ -671,6 +681,7 @@ const I18N = {
     'ota.querying': '正在查询设备信息...',
     'ota.deviceInfo': '设备 ImageSize={size}KB',
     'ota.erasing': '正在擦除 {blocks} 个块...',
+    'ota.eraseProgress': '正在擦除 {current}/{total} 个块...',
     'ota.eraseFailed': '擦除失败: {status}',
     'ota.eraseComplete': '擦除完成',
     'ota.programming': '写入中... {current}/{total} 字节 ({pct}%)',
@@ -681,6 +692,13 @@ const I18N = {
     'ota.success': 'OTA 升级成功！设备正在重启。',
     'ota.failed': 'OTA 失败: {message}',
     'ota.fileTooLarge': '固件文件过大 ({size} 字节，最大 {max} 字节)',
+    'ota.invalidFile': '请选择非空的 .bin 固件文件',
+    'ota.fileReadFailed': '读取固件文件失败: {message}',
+    'ota.invalidInfo': '设备返回的 OTA 信息无效',
+    'ota.responseTimeout': '等待 OTA 响应超时 (命令 0x{command})',
+    'ota.invalidResponse': 'OTA 响应长度错误 (命令 0x{command}，收到 {length} 字节)',
+    'ota.disconnected': 'OTA 期间蓝牙连接已断开',
+    'ota.configBlocked': 'OTA 正在运行，配置操作已停止',
     'confirm.ota': '确认开始 OTA 升级？升级过程中请勿断开连接。',
     'section.responseLog': '响应日志',
     'button.clearLog': '清空日志',
@@ -763,6 +781,18 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function otaParseInfo(bytes) {
+  if (bytes.length !== 20) throw makeI18nError('ota.invalidInfo');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const imageSize = view.getUint32(1, true);
+  const blockSize = view.getUint16(5, true);
+  if (imageSize === 0 || imageSize > IMAGE_MAX || blockSize === 0 ||
+      blockSize % 16 !== 0 || imageSize % blockSize !== 0) {
+    throw makeI18nError('ota.invalidInfo');
+  }
+  return { imageSize, blockSize, chip: view.getUint16(7, true) };
+}
+
 /* Firmware update detection: compare the device version against GitHub Releases. */
 function parseSemver(str) {
   const m = String(str || '').match(/(\d+)\.(\d+)(?:\.(\d+))?/);
@@ -811,10 +841,14 @@ class DeviceController {
     this.chars = {};
     this.lastNotify = null;
     this.lastNotifyResolve = null;
+    this.radarWritesPending = new Set();
     this.statusState = { key: 'status.disconnected', kind: 'disconnected', vars: {} };
     this.feedbackStates = {};
     this.otaFileData = null;
+    this.otaFileSelection = 0;
     this.otaRunning = false;
+    this.otaSequence = 0;
+    this.otaQueryRunning = false;
     this.fwUpdateState = null;
     this.reportUnsupported = false;
     this.onDisconnected = this.onDisconnected.bind(this);
@@ -893,27 +927,31 @@ class DeviceController {
   }
 
   setUiConnected(connected) {
-    const commonIds = ['btn-read-key', 'btn-write-key', 'btn-factory', 'btn-reboot', 'btn-ota-info'];
-    commonIds.forEach(id => this.setControlDisabled(id, !connected));
-    this.setControlDisabled('btn-connect', connected);
+    const canConfigure = connected && !this.otaRunning;
+    const canOta = canConfigure && this.chars.ota && !this.otaQueryRunning;
+    const commonIds = ['btn-read-key', 'btn-write-key', 'btn-factory', 'btn-reboot'];
+    commonIds.forEach(id => this.setControlDisabled(id, !canConfigure));
+    this.setControlDisabled('btn-connect', connected || this.otaRunning || !bluetoothSupported);
     this.setControlDisabled('btn-disconnect', !connected);
-    this.setControlDisabled('btn-ota-start', !(connected && this.otaFileData && this.chars.ota));
+    this.setControlDisabled('btn-ota-info', !canOta);
+    this.setControlDisabled('btn-ota-start', !(canOta && this.otaFileData));
+    this.setControlDisabled('ota-file', this.otaRunning);
 
     if (this.type === 'presence') {
       ['btn-read-params', 'btn-apply-params', 'btn-radar-init', 'btn-send-at', 'btn-radar-reset']
-        .forEach(id => this.setControlDisabled(id, !connected));
-      this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
-      this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
-      this.setControlDisabled('btn-read-mode', !(connected && this.chars.mode));
-      this.setControlDisabled('btn-write-mode', !(connected && this.chars.mode));
+        .forEach(id => this.setControlDisabled(id, !canConfigure));
+      this.setControlDisabled('btn-read-interval', !(canConfigure && this.chars.interval));
+      this.setControlDisabled('btn-write-interval', !(canConfigure && this.chars.interval));
+      this.setControlDisabled('btn-read-mode', !(canConfigure && this.chars.mode));
+      this.setControlDisabled('btn-write-mode', !(canConfigure && this.chars.mode));
     } else if (this.type === 'button') {
-      this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
-      this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
+      this.setControlDisabled('btn-read-interval', !(canConfigure && this.chars.interval));
+      this.setControlDisabled('btn-write-interval', !(canConfigure && this.chars.interval));
     } else {
-      this.setControlDisabled('btn-read-debounce', !connected);
-      this.setControlDisabled('btn-write-debounce', !connected);
-      this.setControlDisabled('btn-read-interval', !(connected && this.chars.interval));
-      this.setControlDisabled('btn-write-interval', !(connected && this.chars.interval));
+      this.setControlDisabled('btn-read-debounce', !canConfigure);
+      this.setControlDisabled('btn-write-debounce', !canConfigure);
+      this.setControlDisabled('btn-read-interval', !(canConfigure && this.chars.interval));
+      this.setControlDisabled('btn-write-interval', !(canConfigure && this.chars.interval));
     }
   }
 
@@ -1213,9 +1251,20 @@ class DeviceController {
   }
 
   async sendRadarCmd(cmd) {
+    if (this.otaRunning) throw makeI18nError('ota.configBlocked');
+    const otaSequence = this.otaSequence;
     this.log('-> ' + cmd);
-    await this.chars.radarCmd.writeValue(txtToBytes(cmd));
-    return await this.waitNotify(1500);
+    const pendingWrite = this.chars.radarCmd.writeValue(txtToBytes(cmd));
+    this.radarWritesPending.add(pendingWrite);
+    try {
+      await pendingWrite;
+    } finally {
+      this.radarWritesPending.delete(pendingWrite);
+    }
+    if (this.otaRunning || otaSequence !== this.otaSequence) throw makeI18nError('ota.configBlocked');
+    const response = await this.waitNotify(1500);
+    if (this.otaRunning || otaSequence !== this.otaSequence) throw makeI18nError('ota.configBlocked');
+    return response;
   }
 
   async readParams() {
@@ -1367,96 +1416,116 @@ class DeviceController {
     el.value = Math.round(pct);
   }
 
-  async otaWriteRead(data, readDelay) {
-    await this.chars.ota.writeValueWithResponse(new Uint8Array(data));
+  async otaWriteRead(data, readDelay, expectedLength = 2, timeout = 5000) {
+    const otaDevice = this.device;
+    const characteristic = this.chars.ota;
+    const ensureConnected = () => {
+      if (!this.isConnected() || this.device !== otaDevice || !characteristic) {
+        throw makeI18nError('ota.disconnected');
+      }
+    };
+    ensureConnected();
+    await characteristic.writeValueWithResponse(new Uint8Array(data));
     await sleep(readDelay);
-    const resp = await this.chars.ota.readValue();
-    return new Uint8Array(resp.buffer);
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      ensureConnected();
+      const resp = await characteristic.readValue();
+      ensureConnected();
+      const bytes = new Uint8Array(resp.buffer, resp.byteOffset, resp.byteLength);
+      if (bytes.length === expectedLength) return bytes;
+      if (bytes.length !== 0) {
+        throw makeI18nError('ota.invalidResponse', { command: data[0].toString(16), length: bytes.length });
+      }
+      await sleep(50);
+    }
+    throw makeI18nError('ota.responseTimeout', { command: data[0].toString(16) });
   }
 
   async otaQueryInfo() {
+    if (this.otaRunning || this.otaQueryRunning) return;
     if (!this.chars.ota) {
       this.setFeedback('ota-feedback', 'ota.noService', 'err');
       this.log(t('ota.noService'));
       return;
     }
+    this.otaQueryRunning = true;
+    this.setUiConnected(this.isConnected());
     this.clearFeedback('ota-feedback');
     try {
       const buf = new Uint8Array(20);
-      buf[0] = 0x84;
+      buf[0] = OTA_CMD_INFO;
       buf[1] = 0x00;
-      const resp = await this.otaWriteRead(buf, 200);
-      const imageSize = resp[1] | (resp[2] << 8) | (resp[3] << 16) | (resp[4] << 24);
-      const blockSize = resp[5] | (resp[6] << 8);
-      const chipId = resp[7] | (resp[8] << 8);
-      const info = `ImageFlag=0x${resp[0].toString(16).padStart(2,'0')}, ImageSize=${imageSize/1024}KB, BlockSize=${blockSize}, ChipID=0x${chipId.toString(16)}`;
+      const resp = await this.otaWriteRead(buf, 200, 20);
+      const { imageSize, blockSize, chip } = otaParseInfo(resp);
+      const info = `ImageFlag=0x${resp[0].toString(16).padStart(2,'0')}, ImageSize=${imageSize/1024}KB, BlockSize=${blockSize}, ChipID=0x${chip.toString(16)}`;
       this.otaSetStatus(info);
       this.setFeedbackText('ota-feedback', info, 'ok');
     } catch (e) {
       this.setFeedbackError('ota-feedback', e);
       this.log(t('ota.infoFailed', { message: getErrorText(e) }));
+    } finally {
+      this.otaQueryRunning = false;
+      this.setUiConnected(this.isConnected());
     }
   }
 
   async startOTA() {
-    const OTA_CMD_PROM = 0x80;
-    const OTA_CMD_ERASE = 0x81;
-    const OTA_CMD_VERIFY = 0x82;
-    const OTA_CMD_END = 0x83;
-    const OTA_CMD_INFO = 0x84;
-    const OTA_CHUNK_SIZE = 240;
-    const OTA_BLOCK_SIZE = 4096;
-    const OTA_ADDR_BASE = 0x1000 / 16;
-    const IMAGE_MAX = 216 * 1024;
-
-    if (!this.otaFileData || !this.chars.ota || this.otaRunning) return;
+    if (!this.otaFileData || !this.chars.ota || !this.isConnected() || this.otaRunning || this.otaQueryRunning) return;
     if (!confirm(t('confirm.ota'))) return;
 
     this.otaRunning = true;
-    this.setControlDisabled('btn-ota-start', true);
-    this.setControlDisabled('btn-ota-info', true);
+    this.otaSequence++;
+    this.setUiConnected(this.isConnected());
     this.clearFeedback('ota-feedback');
 
     try {
-      const firmware = new Uint8Array(this.otaFileData);
-      const totalBytes = firmware.byteLength;
+      const totalBytes = this.otaFileData.byteLength;
+      if (totalBytes === 0) throw makeI18nError('ota.invalidFile');
       if (totalBytes > IMAGE_MAX) {
         throw makeI18nError('ota.fileTooLarge', { size: totalBytes, max: IMAGE_MAX });
       }
+      // Flash writes require whole words; use erased bytes for the final partial word.
+      const firmware = new Uint8Array(Math.ceil(totalBytes / 4) * 4);
+      firmware.fill(0xFF);
+      firmware.set(new Uint8Array(this.otaFileData));
 
+      // Finish an already dispatched radar write before sending any OTA commands.
+      await Promise.all(this.radarWritesPending);
       this.otaSetStatus(t('ota.querying'));
       const infoBuf = new Uint8Array(20);
       infoBuf[0] = OTA_CMD_INFO;
       infoBuf[1] = 0x00;
-      const infoResp = await this.otaWriteRead(infoBuf, 200);
-      const imageSize = infoResp[1] | (infoResp[2] << 8) | (infoResp[3] << 16) | (infoResp[4] << 24);
+      const infoResp = await this.otaWriteRead(infoBuf, 200, 20);
+      const { imageSize, blockSize } = otaParseInfo(infoResp);
+      if (firmware.length > imageSize) {
+        throw makeI18nError('ota.fileTooLarge', { size: totalBytes, max: imageSize });
+      }
       this.otaSetStatus(t('ota.deviceInfo', { size: imageSize / 1024 }));
 
-      const blockCount = Math.ceil(totalBytes / OTA_BLOCK_SIZE);
+      const blockCount = Math.ceil(firmware.length / blockSize);
       this.otaSetStatus(t('ota.erasing', { blocks: blockCount }));
       this.otaSetProgress(0);
 
-      const eraseBuf = new Uint8Array(6);
-      eraseBuf[0] = OTA_CMD_ERASE;
-      eraseBuf[1] = 0x04;
-      eraseBuf[2] = OTA_ADDR_BASE & 0xFF;
-      eraseBuf[3] = (OTA_ADDR_BASE >> 8) & 0xFF;
-      eraseBuf[4] = blockCount & 0xFF;
-      eraseBuf[5] = (blockCount >> 8) & 0xFF;
-      await this.chars.ota.writeValueWithResponse(new Uint8Array(eraseBuf));
-
-      await sleep(blockCount * 80 + 1000);
-      const eraseResp = await this.chars.ota.readValue();
-      const eraseStatus = new Uint8Array(eraseResp.buffer);
-      if (eraseStatus.length > 0 && eraseStatus[0] !== 0) {
-        throw makeI18nError('ota.eraseFailed', { status: '0x' + eraseStatus[0].toString(16) });
+      for (let block = 0; block < blockCount; block++) {
+        const addr16 = OTA_ADDR_BASE + block * blockSize / 16;
+        const eraseBuf = new Uint8Array([OTA_CMD_ERASE, 0x04, addr16 & 0xFF, (addr16 >> 8) & 0xFF, 1, 0]);
+        const eraseStatus = await this.otaWriteRead(eraseBuf, 100);
+        if (eraseStatus[0] !== 0) {
+          throw makeI18nError('ota.eraseFailed', { status: '0x' + eraseStatus[0].toString(16) });
+        }
+        this.otaSetProgress(((block + 1) / blockCount) * 100);
+        if ((block + 1) % 4 === 0 || block === blockCount - 1) {
+          this.otaSetStatus(t('ota.eraseProgress', { current: block + 1, total: blockCount }));
+        }
       }
       this.otaSetStatus(t('ota.eraseComplete'));
 
-      const totalChunks = Math.ceil(totalBytes / OTA_CHUNK_SIZE);
+      this.otaSetProgress(0);
+      const totalChunks = Math.ceil(firmware.length / OTA_CHUNK_SIZE);
       for (let i = 0; i < totalChunks; i++) {
         const offset = i * OTA_CHUNK_SIZE;
-        const end = Math.min(offset + OTA_CHUNK_SIZE, totalBytes);
+        const end = Math.min(offset + OTA_CHUNK_SIZE, firmware.length);
         const chunk = firmware.slice(offset, end);
         const addr16 = offset / 16 + OTA_ADDR_BASE;
         const progBuf = new Uint8Array(4 + chunk.length);
@@ -1466,20 +1535,21 @@ class DeviceController {
         progBuf[3] = (addr16 >> 8) & 0xFF;
         progBuf.set(chunk, 4);
         const progResp = await this.otaWriteRead(progBuf, 20);
-        if (progResp.length > 0 && progResp[0] !== 0) {
+        if (progResp[0] !== 0) {
           throw makeI18nError('ota.programFailed', { offset: '0x' + offset.toString(16), status: '0x' + progResp[0].toString(16) });
         }
         const pct = ((i + 1) / totalChunks) * 100;
         this.otaSetProgress(pct);
         if ((i + 1) % 20 === 0 || i === totalChunks - 1) {
-          this.otaSetStatus(t('ota.programming', { current: end, total: totalBytes, pct: Math.round(pct) }));
+          this.otaSetStatus(t('ota.programming', { current: Math.min(end, totalBytes), total: totalBytes, pct: Math.round(pct) }));
         }
       }
 
       this.otaSetStatus(t('ota.verifying'));
+      this.otaSetProgress(0);
       for (let i = 0; i < totalChunks; i++) {
         const offset = i * OTA_CHUNK_SIZE;
-        const end = Math.min(offset + OTA_CHUNK_SIZE, totalBytes);
+        const end = Math.min(offset + OTA_CHUNK_SIZE, firmware.length);
         const chunk = firmware.slice(offset, end);
         const addr16 = offset / 16 + OTA_ADDR_BASE;
         const verBuf = new Uint8Array(4 + chunk.length);
@@ -1489,7 +1559,7 @@ class DeviceController {
         verBuf[3] = (addr16 >> 8) & 0xFF;
         verBuf.set(chunk, 4);
         const verResp = await this.otaWriteRead(verBuf, 20);
-        if (verResp.length > 0 && verResp[0] !== 0) {
+        if (verResp[0] !== 0) {
           throw makeI18nError('ota.verifyFailed', { offset: '0x' + offset.toString(16) });
         }
         this.otaSetProgress(((i + 1) / totalChunks) * 100);
@@ -1501,10 +1571,19 @@ class DeviceController {
       endBuf[1] = 0x00;
       endBuf[2] = 0x00;
       endBuf[3] = 0x00;
+      if (!this.isConnected()) throw makeI18nError('ota.disconnected');
+      const finishingDevice = this.device;
+      const characteristic = this.chars.ota;
       try {
-        await this.chars.ota.writeValueWithResponse(new Uint8Array(endBuf));
+        // END reboots the peripheral, which may disappear before an ATT response arrives.
+        if (characteristic.properties.writeWithoutResponse &&
+            typeof characteristic.writeValueWithoutResponse === 'function') {
+          await characteristic.writeValueWithoutResponse(endBuf);
+        } else {
+          await characteristic.writeValueWithResponse(endBuf);
+        }
       } catch (e) {
-        /* Device reboot during OTA end is expected. */
+        if (finishingDevice.gatt.connected) throw e;
       }
 
       this.otaSetStatus(t('ota.success'));
@@ -1516,26 +1595,41 @@ class DeviceController {
       this.log(t('ota.failed', { message: getErrorText(e) }));
     } finally {
       this.otaRunning = false;
-      if (this.isConnected()) {
-        this.setControlDisabled('btn-ota-info', false);
-        this.setControlDisabled('btn-ota-start', !(this.otaFileData && this.chars.ota));
-      }
+      this.setUiConnected(this.isConnected());
     }
   }
 
   onOtaFileSelected(event) {
+    if (this.otaRunning) return;
+    const selection = ++this.otaFileSelection;
     const file = event.target.files[0];
-    if (!file) {
-      this.otaFileData = null;
-      this.el('ota-file-info').textContent = '';
-      this.setControlDisabled('btn-ota-start', true);
+    this.otaFileData = null;
+    this.el('ota-file-info').textContent = '';
+    this.clearFeedback('ota-feedback');
+    this.setUiConnected(this.isConnected());
+    if (!file) return;
+    if (!/\.bin$/i.test(file.name) || file.size === 0) {
+      this.setFeedback('ota-feedback', 'ota.invalidFile', 'err');
+      return;
+    }
+    if (file.size > IMAGE_MAX) {
+      this.setFeedback('ota-feedback', 'ota.fileTooLarge', 'err', { size: file.size, max: IMAGE_MAX });
       return;
     }
     const reader = new FileReader();
     reader.onload = e => {
+      if (selection !== this.otaFileSelection) return;
+      if (!e.target.result || e.target.result.byteLength === 0) {
+        this.setFeedback('ota-feedback', 'ota.invalidFile', 'err');
+        return;
+      }
       this.otaFileData = e.target.result;
       this.el('ota-file-info').textContent = `${file.name} (${this.otaFileData.byteLength} bytes / ${(this.otaFileData.byteLength / 1024).toFixed(1)} KB)`;
-      this.setControlDisabled('btn-ota-start', !(this.isConnected() && this.chars.ota));
+      this.setUiConnected(this.isConnected());
+    };
+    reader.onerror = () => {
+      if (selection !== this.otaFileSelection) return;
+      this.setFeedback('ota-feedback', 'ota.fileReadFailed', 'err', { message: getErrorText(reader.error) });
     };
     reader.readAsArrayBuffer(file);
   }

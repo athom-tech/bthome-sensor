@@ -65,6 +65,9 @@ The button supports advertising interval configuration from `5` to `3600` second
 
 ## OTA Upgrade
 
+- Select a non-empty `.bin` firmware file; other formats are not supported.
+- The tool checks the device's image capacity, erases one block at a time using its reported block size, and pads the final partial 4-byte word with `0xFF` before writing and verifying.
+- Configuration controls, device queries, and firmware file selection are disabled during the upgrade. Disconnect remains available, but interrupts the upgrade.
 - Do not disconnect Bluetooth
 - Do not close or refresh the page
 - Do not switch device type
